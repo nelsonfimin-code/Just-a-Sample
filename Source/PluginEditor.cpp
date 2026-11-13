@@ -363,7 +363,15 @@ void JustaSampleAudioProcessorEditor::timerCallback()
 
     // If playback state has changed, update the sampleEditor and sampleNavigator
     bool wasPlaying = currentlyPlaying;
-    currentlyPlaying = std::ranges::any_of(synthVoices, [](auto* voice) -> bool{ return bool(voice->getCurrentlyPlayingSound()); });
+    currentlyPlaying = false;
+    for (const auto* voice : synthVoices)
+    {
+        if (voice->getCurrentlyPlayingSound())
+        {
+            currentlyPlaying = true;
+            break;
+        }
+    }
 
     if ((wasPlaying && !currentlyPlaying) || currentlyPlaying)
     {
@@ -1208,7 +1216,16 @@ bool JustaSampleAudioProcessorEditor::isInterestedInFile(const juce::String& fil
 
 bool JustaSampleAudioProcessorEditor::isInterestedInFileDrag(const juce::StringArray& files)
 {
-    return std::ranges::any_of(files, [this](const auto& f) { return isInterestedInFile(f); }) && !p.getRecorder().shouldRecordDevice();
+    if (p.getRecorder().shouldRecordDevice())
+        return false;
+
+    for (const auto& file : files)
+    {
+        if (isInterestedInFile(file))
+            return true;
+    }
+
+    return false;
 }
 
 void JustaSampleAudioProcessorEditor::filesDropped(const juce::StringArray& files, int, int)
