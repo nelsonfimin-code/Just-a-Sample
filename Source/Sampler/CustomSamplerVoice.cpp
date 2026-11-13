@@ -110,10 +110,21 @@ void CustomSamplerVoice::startNote(int midiNoteNumber, float velocity, juce::Syn
 
         vc = VoiceContext();
         midiReleased = false;
+        mpePitchBendSemitones = 0.f;
+        mpePressure = 0.f;
+        mpeSlide = 0.f;
+        {
+            const auto normalizedBend = currentPitchWheelPosition < 8192
+                ? (float(currentPitchWheelPosition) - 8192.0f) / 8192.0f
+                : (float(currentPitchWheelPosition) - 8192.0f) / 8191.0f;
+            const auto bendRange = isPlayingChannel(1)
+                ? float(sampleSound.pitchWheelRange->get()) : 48.0f;
+            mpePitchBendSemitones = juce::jlimit(-1.0f, 1.0f, normalizedBend) * bendRange;
+        }
 
         doLowpass = false;
         vc.currentPosition = effectiveStart;
-        updateSpeedAndPitch(midiNoteNumber, currentPitchWheelPosition);
+        updateSpeedAndPitch(midiNoteNumber, 8192);
 
         if (playbackMode == PluginParameters::BUNGEE)
             mainStretcher.initialize(effectiveStart, tuning, speedFactor);
@@ -163,7 +174,32 @@ void CustomSamplerVoice::immediateHalt()
 
 void CustomSamplerVoice::pitchWheelMoved(int newPitchWheelValue)
 {
-    updateSpeedAndPitch(getCurrentlyPlayingNote(), newPitchWheelValue);
+    // MPE member-channel pitch bend uses the standard 48-semitone MPE range.
+    const auto normalized = juce::jlimit(-1.0f, 1.0f,
+        newPitchWheelValue < 8192
+            ? (float(newPitchWheelValue) - 8192.0f) / 8192.0f
+            : (float(newPitchWheelValue) - 8192.0f) / 8191.0f);
+    const auto bendRange = isPlayingChannel(1)
+        ? float(sampleSound.pitchWheelRange->get()) : 48.0f;
+    mpePitchBendSemitones = normalized * bendRange;
+    updateSpeedAndPitch(getCurrentlyPlayingNote(), 8192); // The per-channel bend above replaces the legacy global wheel mapping.
+}
+
+void CustomSamplerVoice::aftertouchChanged(int newAftertouchValue)
+{
+    mpePressure = juce::jlimit(0.0f, 1.0f, float(newAftertouchValue) / 127.0f);
+}
+
+void CustomSamplerVoice::channelPressureChanged(int newChannelPressureValue)
+{
+    mpePressure = juce::jlimit(0.0f, 1.0f, float(newChannelPressureValue) / 127.0f);
+}
+
+void CustomSamplerVoice::controllerMoved(int controllerNumber, int newControllerValue)
+{
+    if (controllerNumber == 74)
+        mpeSlide = juce::jlimit(0.0f, 1.0f, float(newControllerValue) / 127.0f);
+    // CC64 sustain is handled by JUCE's synthesiser per MIDI channel.
 }
 
 void CustomSamplerVoice::updateSpeedAndPitch(int currentNote, int pitchWheelPosition)
@@ -180,6 +216,7 @@ void CustomSamplerVoice::updateSpeedAndPitch(int currentNote, int pitchWheelPosi
 
     float wheelRange = sampleSound.pitchWheelRange->get();
     tuningRatio *= std::pow(2.f, juce::jmap<float>(float(pitchWheelPosition), 0.f, 16383.f, -wheelRange, wheelRange) / 12.f);
+    tuningRatio *= std::pow(2.f, mpePitchBendSemitones / 12.f);
 
     tuningRatio *= std::pow(2.f, sampleSound.wideTuningControl->get() / 12.f);
 
@@ -220,9 +257,11 @@ void CustomSamplerVoice::updateSpeedAndPitch(int currentNote, int pitchWheelPosi
         {
             for (int ch = 0; ch < sampleSound.sample.getNumChannels(); ch++)
             {
-                mainLowpass[ch]->setCoefficients(sampleSound.sampleRate, frequency);
-                loopLowpass[ch]->setCoefficients(sampleSound.sampleRate, frequency);
-                endLowpass[ch]->setCoefficients(sampleSound.sampleRate, frequency);
+                const auto mpeBrightness = 0.5f + 0.5f * mpeSlide;
+                const auto expressiveCutoff = frequency * mpeBrightness;
+                mainLowpass[ch]->setCoefficients(sampleSound.sampleRate, expressiveCutoff);
+                loopLowpass[ch]->setCoefficients(sampleSound.sampleRate, expressiveCutoff);
+                endLowpass[ch]->setCoefficients(sampleSound.sampleRate, expressiveCutoff);
             }
         }
     }
@@ -405,6 +444,7 @@ void CustomSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             // Scale with standard velocity curve
             sample *= juce::Decibels::decibelsToGain(40 * log10(noteVelocity));
             sample *= juce::Decibels::decibelsToGain(float(sampleSound.gain->get()));
+            sample *= juce::Decibels::decibelsToGain(6.0f * mpePressure);
 
             tempOutputBuffer.setSample(ch, i, sample);
         }

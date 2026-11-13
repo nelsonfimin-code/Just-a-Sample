@@ -163,6 +163,8 @@ public:
 
     /** Get the current gain of the voice in the attack and release envelopes, for visualization */
     float getEnvelopeGain() const;
+    float getMPEPressure() const noexcept { return mpePressure; }
+    float getMPESlide() const noexcept { return mpeSlide; }
 
     /** x should be [0, 1] */
     static const float exponentialCurve(float a, float x) { return juce::approximatelyEqual(a, 0.f, juce::Tolerance<float>().withAbsolute(0.001f)) ? x : (std::exp(a * x) - 1) / (std::exp(a) - 1); }
@@ -174,7 +176,9 @@ private:
     bool canPlaySound(juce::SynthesiserSound*) override { return true; }
     void startNote(int midiNoteNumber, float velocity, juce::SynthesiserSound* sound, int currentPitchWheelPosition) override;
     void pitchWheelMoved(int newPitchWheelValue) override;
-    void controllerMoved(int, int) override {}
+    void aftertouchChanged(int newAftertouchValue) override;
+    void channelPressureChanged(int newChannelPressureValue) override;
+    void controllerMoved(int controllerNumber, int newControllerValue) override;
     void renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int startSample, int numSamples) override;
 
     //==============================================================================
@@ -215,6 +219,9 @@ private:
     PluginParameters::PLAYBACK_MODES playbackMode{ PluginParameters::PLAYBACK_MODES::BASIC };
     float tuning{ 0.f };
     int pitchWheel{ 0 };
+    float mpePitchBendSemitones{ 0.f };
+    float mpePressure{ 0.f };
+    float mpeSlide{ 0.f };
     float speedFactor{ 0.f };  // Used in ADVANCED mode
     float noteVelocity{ 0.f };
 
