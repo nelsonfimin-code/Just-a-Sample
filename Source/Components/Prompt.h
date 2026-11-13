@@ -101,9 +101,16 @@ private:
 
     bool hitTest(int x, int y) override
     {
-        return visible && !std::ranges::any_of(shownComponents, [this, x, y](const Component* comp) {
-            return comp->getBounds().translated(-getX(), -getY()).contains(x, y);
-        });
+        if (!visible)
+            return false;
+
+        for (const auto* comp : shownComponents)
+        {
+            if (comp->getBounds().translated(-getX(), -getY()).contains(x, y))
+                return false;
+        }
+
+        return true;
     }
 
     void mouseDown(const juce::MouseEvent&) override
