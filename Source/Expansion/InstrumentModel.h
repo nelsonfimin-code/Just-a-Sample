@@ -10,13 +10,14 @@ struct ZoneMatch { const SampleZone* zone=nullptr; float keyGain=1.0f,velocityGa
 class ZoneSelection {
 public:
  static constexpr std::size_t capacity=128;
- bool push(ZoneMatch m)noexcept{if(count_==capacity)return false;matches_[count_++]=m;return true;}
+ bool push(ZoneMatch m)noexcept{if(count_==capacity){overflowed_=true;return false;}matches_[count_++]=m;return true;}
+ bool overflowed()const noexcept{return overflowed_;}
  std::size_t size()const noexcept{return count_;}
  bool empty()const noexcept{return count_==0;}
  const ZoneMatch& operator[](std::size_t i)const noexcept{return matches_[i];}
  ZoneMatch* begin()noexcept{return matches_.data();} ZoneMatch* end()noexcept{return matches_.data()+count_;}
  const ZoneMatch* begin()const noexcept{return matches_.data();} const ZoneMatch* end()const noexcept{return matches_.data()+count_;}
-private: std::array<ZoneMatch,capacity> matches_{};std::size_t count_=0;
+private: std::array<ZoneMatch,capacity> matches_{};std::size_t count_=0;bool overflowed_=false;
 };
 class InstrumentModel {
 public:
