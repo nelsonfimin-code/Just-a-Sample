@@ -207,6 +207,10 @@ target_sources(JustASample PRIVATE
         Source/Sampler/CustomSamplerVoice.cpp
         Source/Sampler/CustomSamplerVoice.h
         Source/Sampler/CustomSynthesizer.h
+        Source/Expansion/InstrumentModel.h
+        Source/Expansion/InstrumentModel.cpp
+        Source/Expansion/MPEExpression.h
+        Source/Expansion/MPEExpression.cpp
         Source/Sampler/SamplerParameters.cpp
         Source/Sampler/SamplerParameters.h
         Source/Sampler/Stretcher.h
