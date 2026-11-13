@@ -6,7 +6,7 @@ Cross-platform sampler instrument for macOS and Windows with AU, VST3 and standa
 ## First engine increment
 - Instrument zones with sample references, key/velocity ranges, root key, gain, pan and fade regions.
 - Velocity layers and simultaneous sample layers.
-- Round-robin groups.
+- Round-robin groups. The selector uses fixed-capacity storage (up to 128 simultaneous zone matches) and performs no heap allocation during note selection.
 - MPE expression state: per-channel pitch bend, channel pressure, CC74 slide, sustain and per-note pressure.
 - Validation and standalone C++ tests.
 

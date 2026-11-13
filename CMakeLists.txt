@@ -350,3 +350,14 @@ if (MSVC)
         target_compile_options(bungee_library PRIVATE "SHELL:/FI \"${BUNGEE_COMPAT_H}\"")
     endif()
 endif()
+
+
+include(CTest)
+if (BUILD_TESTING)
+    add_executable(sampler_expansion_tests
+        Source/Expansion/InstrumentModel.cpp
+        Source/Expansion/MPEExpression.cpp
+        tests/test_sampler_expansion.cpp
+    )
+    add_test(NAME sampler_expansion_tests COMMAND sampler_expansion_tests)
+endif()
