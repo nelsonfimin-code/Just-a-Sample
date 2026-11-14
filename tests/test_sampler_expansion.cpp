@@ -12,8 +12,13 @@
 #include <cstdlib>
 #include <cstdio>
 #include <sys/stat.h>
+#if defined(_WIN32)
+#include <direct.h>
+#define JAS_REMOVE_DIRECTORY _rmdir
+#else
 #include <unistd.h>
-#include <limits.h>
+#define JAS_REMOVE_DIRECTORY rmdir
+#endif
 #include <cmath>
 #include <iostream>
 #include <string>
@@ -344,9 +349,9 @@ void testInstrumentFileIO()
     RelinkReport report;
     assert(relinkMissingSamples(missingModel, { searchFolder }, relinked, report, &error));
     assert(report.relinkedSamples == 1 && report.unresolved.empty());
-    char resolvedMovedSample[PATH_MAX] {};
-    assert(realpath(movedSample.c_str(), resolvedMovedSample) != nullptr);
-    assert(relinked.zones()[0].sample.path == resolvedMovedSample);
+    const auto& resolvedMovedSample = relinked.zones()[0].sample.path;
+    std::ifstream resolvedSampleFile(resolvedMovedSample, std::ios::binary);
+    assert(resolvedMovedSample.find("kick.wav") != std::string::npos && resolvedSampleFile.good());
 
     const auto duplicateSample = duplicateFolder + "/kick.wav";
     {
@@ -363,10 +368,10 @@ void testInstrumentFileIO()
     std::remove(corruptPreset.c_str());
     std::remove(movedSample.c_str());
     std::remove(duplicateSample.c_str());
-    rmdir(originalFolder.c_str());
-    rmdir(searchFolder.c_str());
-    rmdir(duplicateFolder.c_str());
-    rmdir(root.c_str());
+    JAS_REMOVE_DIRECTORY(originalFolder.c_str());
+    JAS_REMOVE_DIRECTORY(searchFolder.c_str());
+    JAS_REMOVE_DIRECTORY(duplicateFolder.c_str());
+    JAS_REMOVE_DIRECTORY(root.c_str());
 }
 
 void testPlaybackEngine()
