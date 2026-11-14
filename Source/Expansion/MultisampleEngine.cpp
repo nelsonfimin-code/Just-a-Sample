@@ -106,8 +106,9 @@ MultisampleEngine::Voice* MultisampleEngine::allocateVoice() noexcept
 
 ModulationInputs MultisampleEngine::inputsFor(const Voice& voice, float lfoValue) const noexcept
 {
+    const auto envelope = std::clamp(voice.attackGain * voice.releaseGain, 0.0f, 1.0f);
     auto inputs = mpe_.modulationInputs(voice.channel, voice.note, voice.velocity,
-                                        voice.keyTrack, lfoValue, voice.releaseGain);
+                                        voice.keyTrack, lfoValue, envelope);
     inputs.polyPressure = voice.pressure;
     inputs.slide = voice.slide;
     return inputs;
@@ -186,6 +187,12 @@ void MultisampleEngine::noteOn(std::uint8_t channel, std::uint8_t note, std::uin
         voice->lfo.configure(lfoRateHz_, lfoShape_);
         voice->lfo.reset();
 
+        // A reused voice may contain stale envelope values from its previous note.
+        // Reset both stages before evaluating note-on modulation destinations.
+        voice->attackGain = 1.0f;
+        voice->releaseGain = 1.0f;
+        voice->releaseStep = 0.0f;
+        voice->releasing = false;
         const auto inputs = inputsFor(*voice, 0.0f);
         const auto start = modulation_.evaluate(ModDestination::SampleStart, 0.0f, 0.0f, 1.0f, inputs);
         voice->position = voice->sampleStart

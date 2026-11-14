@@ -448,6 +448,24 @@ void testPlaybackEngine()
     engine.render(outLeft, outRight, 4, 48000.0, reverbSendLeft, reverbSendRight, delaySendLeft, delaySendRight);
     assert(outLeft[0] >= 0.0f && outLeft[3] > 0.0f && outRight[3] > 0.0f);
     assert(reverbSendLeft[0] > 0.0f && delaySendLeft[0] > 0.0f);
+    // Envelope1 must follow the actual attack/release amplitude, not stay at
+    // the release-gain value of 1.0 throughout the attack ramp.
+    auto envelopeZone = makeZone("envelope-modulation", 60, 60, 1, 127);
+    InstrumentModel envelopeModel;
+    assert(envelopeModel.addZone(envelopeZone));
+    ZoneAudio envelopeAudio { &envelopeModel.zones()[0], sampleLeft, sampleRight, 8, 48000.0 };
+    MultisampleEngine envelopeEngine;
+    assert(envelopeEngine.setInstrument(envelopeModel, &envelopeAudio, 1));
+    ModulationMatrix envelopeMatrix;
+    assert(envelopeMatrix.addRoute({ ModSource::Velocity, ModDestination::AttackMs, 48.0f, true }));
+    assert(envelopeMatrix.addRoute({ ModSource::Envelope1, ModDestination::Pan, 1.0f, true }));
+    envelopeEngine.setModulationMatrix(envelopeMatrix);
+    envelopeEngine.setOutputSampleRate(48000.0);
+    envelopeEngine.handleMidi({ EngineMidiEvent::Type::NoteOn, 1, 60, 0, 127 });
+    float envelopeLeft[4] = {}, envelopeRight[4] = {};
+    envelopeEngine.render(envelopeLeft, envelopeRight, 4, 48000.0);
+    assert(envelopeLeft[1] > 0.0f && envelopeRight[1] > envelopeLeft[1]);
+
     engine.handleMidi({ EngineMidiEvent::Type::NoteOff, 2, 60, 0, 0 });
     assert(engine.activeVoices() == 1);
     float tailLeft[4096] = {};
