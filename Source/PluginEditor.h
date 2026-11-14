@@ -10,6 +10,9 @@
 
 #pragma once
 #include <JuceHeader.h>
+#include <array>
+#include <utility>
+#include <vector>
 
 #include "PluginProcessor.h"
 #include "CustomLookAndFeel.h"
@@ -19,6 +22,8 @@
 #include "Components/FxChain.h"
 #include "Components/Prompt.h"
 #include "Components/SampleNavigator.h"
+#include "Components/InstrumentMap.h"
+#include "Components/ModulationPanel.h"
 
 /** Painting ordering requires a separate component... */
 class EditorOverlay final : public CustomComponent
@@ -129,6 +134,7 @@ private:
     void fileDragExit(const juce::StringArray& files) override;
 
     void updateLabel(const juce::String& text = "");
+    void setWorkspace(int workspace);
 
     //==============================================================================
     /** Scaling the sizes in our Figma demo to percentages of width.
@@ -215,10 +221,20 @@ private:
     CustomToggleableButton pinButton;
     ToggleButtonAttachment pinButtonAttachment;
 
+    // Workspace navigation and expansion views
+    enum Workspace : int { Play = 0, Map = 1, Edit = 2, Mod = 3, FX = 4 };
+    std::array<juce::TextButton, 5> workspaceTabs {
+        juce::TextButton("PLAY"), juce::TextButton("MAP"), juce::TextButton("EDIT"),
+        juce::TextButton("MOD"), juce::TextButton("FX") };
+    int activeWorkspace { Play };
+    std::vector<std::pair<juce::Component*, bool>> savedWorkspaceVisibility;
+
     // Main components
     SampleEditor sampleEditor;
     SampleNavigator sampleNavigator;  // Note that SampleNavigator manages ViewStart and ViewEnd
     FxChain fxChain;
+    InstrumentMapComponent instrumentMap;
+    ModulationPanel modulationPanel;
 
     juce::Label statusLabel;
     const juce::String defaultMessage{ "Welcome!" };

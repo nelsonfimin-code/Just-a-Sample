@@ -77,6 +77,8 @@ JustaSampleAudioProcessorEditor::JustaSampleAudioProcessorEditor(JustaSampleAudi
     sampleNavigator(p.APVTS(), p.getPluginState(), synthVoices),
 
     fxChain(p),
+    instrumentMap(p),
+    modulationPanel(p),
 
     // Footer
     logo(getOutlineFromSVG(BinaryData::Logo_svg)),
@@ -102,11 +104,11 @@ JustaSampleAudioProcessorEditor::JustaSampleAudioProcessorEditor(JustaSampleAudi
     int maxWidth = desktopSize ? desktopSize->totalArea.getWidth() : 2000;
     int maxHeight = desktopSize ? desktopSize->totalArea.getHeight() : 1600;
 
-    int minWidth = 250;
-    int minHeight = 200;
+    int minWidth = 760;
+    int minHeight = 560;
 
     if (minWidth > width || width > maxWidth || minHeight > height || height > maxHeight)
-        setSize(800, 400);
+        setSize(1120, 700);
     else
         setSize(width, height);
     setResizable(true, true);
@@ -203,6 +205,23 @@ JustaSampleAudioProcessorEditor::JustaSampleAudioProcessorEditor(JustaSampleAudi
         rotary->addMouseListener(this, true);  // We need this to pass drag events through the labels
         addAndMakeVisible(rotary);
     }
+
+    // Workspace navigation
+    for (int i = 0; i < int(workspaceTabs.size()); ++i)
+    {
+        auto& tab = workspaceTabs[std::size_t(i)];
+        tab.setColour(juce::TextButton::buttonColourId, juce::Colour(0xcc292f38));
+        tab.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffd99b43));
+        tab.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffb5beca));
+        tab.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff171a20));
+        tab.setClickingTogglesState(false);
+        tab.onClick = [this, i] { setWorkspace(i); };
+        addAndMakeVisible(tab);
+    }
+    addAndMakeVisible(instrumentMap);
+    instrumentMap.setVisible(false);
+    addAndMakeVisible(modulationPanel);
+    modulationPanel.setVisible(false);
 
     // Editor and navigator
     addAndMakeVisible(sampleEditor);
@@ -334,6 +353,7 @@ JustaSampleAudioProcessorEditor::JustaSampleAudioProcessorEditor(JustaSampleAudi
     startTimerHz(PluginParameters::FRAME_RATE);
 
     enablementChanged();
+    setWorkspace(Play);
 }
 
 JustaSampleAudioProcessorEditor::~JustaSampleAudioProcessorEditor()
@@ -560,6 +580,51 @@ void EditorOverlay::lookAndFeelChanged()
     navControlShadow.setColor(colors.slate.withAlpha(0.125f));
 }
 
+void JustaSampleAudioProcessorEditor::setWorkspace(int workspace)
+{
+    const auto previousWorkspace = activeWorkspace;
+    activeWorkspace = juce::jlimit(int(Play), int(FX), workspace);
+    for (int i = 0; i < int(workspaceTabs.size()); ++i)
+        workspaceTabs[std::size_t(i)].setToggleState(i == activeWorkspace, juce::dontSendNotification);
+
+    const bool wasFocused = previousWorkspace == Map || previousWorkspace == Mod;
+    const bool isFocused = activeWorkspace == Map || activeWorkspace == Mod;
+    if (isFocused && !wasFocused)
+    {
+        savedWorkspaceVisibility.clear();
+        for (int i = 0; i < getNumChildComponents(); ++i)
+        {
+            auto* child = getChildComponent(i);
+            if (child == &instrumentMap || child == &modulationPanel || child == &prompt || child == &audioDeviceSettings)
+                continue;
+            bool isTab = false;
+            for (auto& tab : workspaceTabs) if (child == &tab) { isTab = true; break; }
+            if (!isTab)
+            {
+                savedWorkspaceVisibility.emplace_back(child, child->isVisible());
+                child->setVisible(false);
+            }
+        }
+    }
+    else if (!isFocused && wasFocused)
+    {
+        for (const auto& entry : savedWorkspaceVisibility)
+            if (entry.first != nullptr) entry.first->setVisible(entry.second);
+        savedWorkspaceVisibility.clear();
+    }
+
+    instrumentMap.setVisible(activeWorkspace == Map);
+    modulationPanel.setVisible(activeWorkspace == Mod);
+    if (activeWorkspace == Map) instrumentMap.refresh();
+    if (activeWorkspace == Mod) modulationPanel.refresh();
+    if (activeWorkspace == FX)
+    {
+        pluginState.showFX = true;
+        showFXButton.setToggleState(true, juce::dontSendNotification);
+    }
+    resized();
+}
+
 void JustaSampleAudioProcessorEditor::resized()
 {
     pluginState.width = getWidth();
@@ -567,6 +632,18 @@ void JustaSampleAudioProcessorEditor::resized()
 
     auto bounds = getConstrainedBounds().toFloat();
 
+    auto navigation = bounds.removeFromTop(46.0f).toNearestInt().reduced(12, 5);
+    const auto tabGap = 6;
+    const auto tabWidth = (navigation.getWidth() - tabGap * 4) / 5;
+    for (int i = 0; i < int(workspaceTabs.size()); ++i)
+        workspaceTabs[std::size_t(i)].setBounds(navigation.removeFromLeft(tabWidth));
+    if (activeWorkspace == Map || activeWorkspace == Mod)
+    {
+        if (activeWorkspace == Map) instrumentMap.setBounds(bounds.toNearestInt());
+        else modulationPanel.setBounds(bounds.toNearestInt());
+        prompt.setBounds(bounds.toNearestInt());
+        return;
+    }
     prompt.setBounds(bounds.toNearestInt());
 
     audioDeviceSettings.setBounds(juce::Rectangle(scalef(1200.f), scalef(700.f)).withCentre(bounds.getCentre()).toNearestInt());

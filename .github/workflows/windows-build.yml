@@ -1,0 +1,25 @@
+name: Windows VST3 build
+
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows-vst3:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout with dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure x64
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build VST3 and integration tests
+        run: cmake --build build --config Release --target JustASample_VST3 sampler_expansion_tests sampler_processor_tests --parallel 2
+
+      - name: Run sampler tests
+        run: ctest --test-dir build -C Release --output-on-failure

@@ -129,7 +129,7 @@ juce::VST3ClientExtensions* JustaSampleAudioProcessor::getVST3ClientExtensions()
     return nullptr;
 }
 
-void JustaSampleAudioProcessor::prepareToPlay(double sampleRate, int /*maximumExpectedSamplesPerBlock*/)
+void JustaSampleAudioProcessor::prepareToPlay(double sampleRate, int maximumExpectedSamplesPerBlock)
 {
     juce::ScopedLock lock(voiceLock);
 
@@ -143,6 +143,22 @@ void JustaSampleAudioProcessor::prepareToPlay(double sampleRate, int /*maximumEx
     synth.setCurrentPlaybackSampleRate(sampleRate);
     multisampleEngine.reset();
     multisampleEngine.setOutputSampleRate(sampleRate);
+    multisampleSends.setSize(4, juce::jmax(1, maximumExpectedSamplesPerBlock), false, false, true);
+    multisampleSends.clear();
+    juce::Reverb::Parameters reverbParameters;
+    reverbParameters.roomSize = 0.62f;
+    reverbParameters.damping = 0.48f;
+    reverbParameters.wetLevel = 1.0f;
+    reverbParameters.dryLevel = 0.0f;
+    reverbParameters.width = 1.0f;
+    reverbParameters.freezeMode = 0.0f;
+    multisampleReverb.setSampleRate(sampleRate);
+    multisampleReverb.setParameters(reverbParameters);
+    const auto delayCapacity = juce::jmax(1, int(sampleRate * 1.5));
+    multisampleDelayLeft.assign(std::size_t(delayCapacity), 0.0f);
+    multisampleDelayRight.assign(std::size_t(delayCapacity), 0.0f);
+    multisampleDelayFrames = juce::jlimit(1, delayCapacity - 1, int(sampleRate * 0.375));
+    multisampleDelayWriteIndex = 0;
 
     for (int i = 0; i < PluginParameters::MAX_VOICES; i++)
     {
@@ -190,6 +206,8 @@ void JustaSampleAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     {
         if (multiSampleMode.load(std::memory_order_acquire))
         {
+            const auto hasTimeEffectBuses = multisampleSends.getNumSamples() >= buffer.getNumSamples();
+            if (hasTimeEffectBuses) multisampleSends.clear();
             multisampleEngine.setVoiceLimit(std::size_t(juce::jlimit(1, PluginParameters::MAX_VOICES, int(p(PluginParameters::NUM_VOICES)))));
             int renderedTo = 0;
             for (const auto metadata : midiMessages)
@@ -198,7 +216,11 @@ void JustaSampleAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                 if (position > renderedTo)
                     multisampleEngine.render(buffer.getWritePointer(0) + renderedTo,
                         buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) + renderedTo : nullptr,
-                        std::size_t(position - renderedTo), getSampleRate());
+                        std::size_t(position - renderedTo), getSampleRate(),
+                        hasTimeEffectBuses ? multisampleSends.getWritePointer(0) + renderedTo : nullptr,
+                        hasTimeEffectBuses ? multisampleSends.getWritePointer(1) + renderedTo : nullptr,
+                        hasTimeEffectBuses ? multisampleSends.getWritePointer(2) + renderedTo : nullptr,
+                        hasTimeEffectBuses ? multisampleSends.getWritePointer(3) + renderedTo : nullptr);
                 const auto& message = metadata.getMessage();
                 sampler::EngineMidiEvent event;
                 event.channel = std::uint8_t(message.getChannel());
@@ -217,7 +239,36 @@ void JustaSampleAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
             if (renderedTo < buffer.getNumSamples())
                 multisampleEngine.render(buffer.getWritePointer(0) + renderedTo,
                     buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) + renderedTo : nullptr,
-                    std::size_t(buffer.getNumSamples() - renderedTo), getSampleRate());
+                    std::size_t(buffer.getNumSamples() - renderedTo), getSampleRate(),
+                    hasTimeEffectBuses ? multisampleSends.getWritePointer(0) + renderedTo : nullptr,
+                    hasTimeEffectBuses ? multisampleSends.getWritePointer(1) + renderedTo : nullptr,
+                    hasTimeEffectBuses ? multisampleSends.getWritePointer(2) + renderedTo : nullptr,
+                    hasTimeEffectBuses ? multisampleSends.getWritePointer(3) + renderedTo : nullptr);
+            if (hasTimeEffectBuses)
+            {
+                auto* reverbL = multisampleSends.getWritePointer(0);
+                auto* reverbR = multisampleSends.getWritePointer(1);
+                multisampleReverb.processStereo(reverbL, reverbR, buffer.getNumSamples());
+                auto* delayInL = multisampleSends.getReadPointer(2);
+                auto* delayInR = multisampleSends.getReadPointer(3);
+                const auto delayCapacity = int(multisampleDelayLeft.size());
+                for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+                {
+                    const auto readIndex = (multisampleDelayWriteIndex - multisampleDelayFrames + delayCapacity) % delayCapacity;
+                    const auto delayedL = multisampleDelayLeft[std::size_t(readIndex)];
+                    const auto delayedR = multisampleDelayRight[std::size_t(readIndex)];
+                    multisampleDelayLeft[std::size_t(multisampleDelayWriteIndex)] = delayInL[sample] + delayedL * 0.28f;
+                    multisampleDelayRight[std::size_t(multisampleDelayWriteIndex)] = delayInR[sample] + delayedR * 0.28f;
+                    multisampleDelayWriteIndex = (multisampleDelayWriteIndex + 1) % delayCapacity;
+                    if (buffer.getNumChannels() > 1)
+                    {
+                        buffer.addSample(0, sample, reverbL[sample] + delayedL * 0.38f);
+                        buffer.addSample(1, sample, reverbR[sample] + delayedR * 0.38f);
+                    }
+                    else
+                        buffer.addSample(0, sample, 0.5f * (reverbL[sample] + reverbR[sample] + (delayedL + delayedR) * 0.38f));
+                }
+            }
         }
         else if (sampleBuffer.getNumSamples() > 0 && sampleBuffer.getNumChannels() > 0)
         {
@@ -345,8 +396,27 @@ void JustaSampleAudioProcessor::setStateInformation(const void* data, int sizeIn
     {
         apvts.replaceState(tree);
 
+        sampler::MPEZoneConfig restoredMpe;
+        restoredMpe.layout = int(apvts.state.getProperty("JAS MPE Layout", 0)) == 1
+            ? sampler::MPEZoneConfig::Layout::Upper : sampler::MPEZoneConfig::Layout::Lower;
+        restoredMpe.memberChannels = std::uint8_t(juce::jlimit(1, 15, int(apvts.state.getProperty("JAS MPE Members", 15))));
+        restoredMpe.pitchBendRangeSemitones = float(apvts.state.getProperty("JAS MPE Bend Range", 48.0));
+        setMPEZoneConfig(restoredMpe);
+        const auto restoredShape = juce::jlimit(0, 3, int(apvts.state.getProperty("JAS LFO Shape", 0)));
+        configureModulationLfo(float(apvts.state.getProperty("JAS LFO Rate", 1.0)), sampler::Lfo::Shape(restoredShape));
+        sampler::ModulationMatrix restoredMatrix;
+        const auto matrixState = apvts.state.getChildWithName("JASModulationMatrix");
+        for (int i = 0; i < matrixState.getNumChildren(); ++i)
+        {
+            const auto item = matrixState.getChild(i);
+            restoredMatrix.addRoute({ sampler::ModSource(juce::jlimit(0, int(sampler::ModSource::Envelope1), int(item.getProperty("source", 0)))),
+                sampler::ModDestination(juce::jlimit(0, int(sampler::ModDestination::SampleStart), int(item.getProperty("destination", 0)))),
+                float(item.getProperty("depth", 0.0)), bool(item.getProperty("enabled", true)) });
+        }
+        setModulationMatrix(restoredMatrix);
+
         const auto encodedInstrument = sp(PluginParameters::State::INSTRUMENT_DATA).toString();
-        restoringInstrumentState = false;
+        restoringInstrumentState.store(false, std::memory_order_release);
         if (encodedInstrument.isNotEmpty())
         {
             juce::MemoryBlock instrumentData;
@@ -355,14 +425,20 @@ void JustaSampleAudioProcessor::setStateInformation(const void* data, int sizeIn
                 std::vector<std::uint8_t> bytes(instrumentData.getSize());
                 if (!bytes.empty()) std::memcpy(bytes.data(), instrumentData.getData(), bytes.size());
                 sampler::InstrumentModel restoredInstrument;
-                restoringInstrumentState = restoredInstrument.deserialize(bytes) && loadInstrument(restoredInstrument);
+                const auto validInstrument = restoredInstrument.deserialize(bytes);
+                restoringInstrumentState.store(validInstrument, std::memory_order_release);
+                if (validInstrument)
+                    loadInstrumentModelAsync(std::move(restoredInstrument), [this](bool loaded, const juce::String&)
+                    {
+                        if (!loaded) restoringInstrumentState.store(false, std::memory_order_release);
+                    });
             }
         }
         else if (multiSampleMode.load(std::memory_order_acquire))
             clearInstrument();
         const auto finishInstrumentRestore = [this]
         {
-            restoringInstrumentState = false;
+            restoringInstrumentState.store(false, std::memory_order_release);
         };
 
         // Load the plugin state struct
@@ -471,7 +547,7 @@ void JustaSampleAudioProcessor::loadSample(juce::AudioBuffer<float>& sample, int
     juce::ScopedLock lock(voiceLock);
 
     haltVoices();
-    if (!restoringInstrumentState)
+    if (!restoringInstrumentState.load(std::memory_order_acquire))
     {
         asyncLifetime->generation.fetch_add(1, std::memory_order_acq_rel);
         multisampleEngine.reset();
@@ -513,6 +589,63 @@ bool JustaSampleAudioProcessor::loadInstrument(const sampler::InstrumentModel& m
 {
     asyncLifetime->generation.fetch_add(1, std::memory_order_acq_rel);
     return loadInstrumentInternal(model, error, 0);
+}
+
+void JustaSampleAudioProcessor::loadInstrumentModelAsync(
+    sampler::InstrumentModel model,
+    std::function<void(bool, const juce::String&)> callback)
+{
+    const auto generation = asyncLifetime->generation.fetch_add(1, std::memory_order_acq_rel) + 1;
+    const auto weakLifetime = std::weak_ptr<AsyncLifetime>(asyncLifetime);
+    instrumentLoadPool.addJob([this, generation, weakLifetime, model = std::move(model),
+                               callback = std::move(callback)]() mutable
+    {
+        if (generation != asyncLifetime->generation.load(std::memory_order_acquire)) return;
+        juce::String error;
+        const auto loaded = loadInstrumentInternal(model, &error, generation);
+        if (generation != asyncLifetime->generation.load(std::memory_order_acquire)) return;
+        juce::MessageManager::callAsync([weakLifetime, generation, callback = std::move(callback), loaded, error]() mutable
+        {
+            const auto lifetime = weakLifetime.lock();
+            if (lifetime == nullptr || !lifetime->alive.load(std::memory_order_acquire)
+                || lifetime->generation.load(std::memory_order_acquire) != generation) return;
+            if (callback) callback(loaded, error);
+        });
+    });
+}
+
+sampler::InstrumentModel JustaSampleAudioProcessor::getInstrumentModelSnapshot()
+{
+    juce::ScopedLock lock(voiceLock);
+    return instrumentModel;
+}
+
+bool JustaSampleAudioProcessor::updateInstrumentZone(const sampler::SampleZone& zone, juce::String* error)
+{
+    auto fail = [error](const juce::String& message) { if (error) *error = message; return false; };
+    juce::ScopedLock lock(voiceLock);
+    if (!multiSampleMode.load(std::memory_order_acquire) || instrumentModel.size() == 0)
+        return fail("Load a multisample instrument before editing zones.");
+    auto candidate = instrumentModel;
+    std::string validationError;
+    if (!candidate.replaceZone(zone.id, zone, &validationError))
+        return fail(validationError);
+    if (instrumentSamples.size() != candidate.size())
+        return fail("Instrument sample buffers are not aligned with the zone map.");
+    std::array<sampler::ZoneAudio, sampler::MultisampleEngine::maxZones> audio{};
+    for (std::size_t i = 0; i < candidate.size(); ++i)
+    {
+        const auto& buffer = instrumentSamples[i].buffer;
+        if (buffer.getNumSamples() <= 0 || buffer.getNumChannels() <= 0)
+            return fail("A zone has no decoded sample buffer.");
+        audio[i] = { &candidate.zones()[i], buffer.getReadPointer(0),
+            buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : nullptr,
+            std::uint64_t(buffer.getNumSamples()), instrumentSamples[i].sampleRate };
+    }
+    if (!multisampleEngine.setInstrument(candidate, audio.data(), candidate.size()))
+        return fail("The updated zone map could not be prepared.");
+    instrumentModel = std::move(candidate);
+    return true;
 }
 
 bool JustaSampleAudioProcessor::loadInstrumentInternal(const sampler::InstrumentModel& model,
@@ -637,20 +770,73 @@ void JustaSampleAudioProcessor::cancelInstrumentLoad() noexcept
 
 void JustaSampleAudioProcessor::setModulationMatrix(const sampler::ModulationMatrix& matrix)
 {
+    {
+        juce::ScopedLock lock(voiceLock);
+        modulationMatrix = matrix;
+        multisampleEngine.setModulationMatrix(matrix);
+    }
+    juce::ValueTree state("JASModulationMatrix");
+    for (std::size_t i = 0; i < matrix.size(); ++i)
+    {
+        const auto* route = matrix.route(i);
+        if (!route) continue;
+        juce::ValueTree item("Route");
+        item.setProperty("source", int(route->source), nullptr);
+        item.setProperty("destination", int(route->destination), nullptr);
+        item.setProperty("depth", route->depth, nullptr);
+        item.setProperty("enabled", route->enabled, nullptr);
+        state.addChild(item, -1, nullptr);
+    }
+    apvts.state.removeChild(apvts.state.getChildWithName("JASModulationMatrix"), nullptr);
+    apvts.state.addChild(state, -1, nullptr);
+}
+
+sampler::ModulationMatrix JustaSampleAudioProcessor::getModulationMatrixSnapshot()
+{
     juce::ScopedLock lock(voiceLock);
-    multisampleEngine.setModulationMatrix(matrix);
+    return modulationMatrix;
 }
 
 void JustaSampleAudioProcessor::setMPEZoneConfig(sampler::MPEZoneConfig config)
 {
+    {
+        juce::ScopedLock lock(voiceLock);
+        mpeZoneConfig = config;
+        multisampleEngine.setMPEZoneConfig(config);
+    }
+    apvts.state.setProperty("JAS MPE Layout", int(config.layout), nullptr);
+    apvts.state.setProperty("JAS MPE Members", int(config.memberChannels), nullptr);
+    apvts.state.setProperty("JAS MPE Bend Range", config.pitchBendRangeSemitones, nullptr);
+}
+
+sampler::MPEZoneConfig JustaSampleAudioProcessor::getMPEZoneConfig()
+{
     juce::ScopedLock lock(voiceLock);
-    multisampleEngine.setMPEZoneConfig(config);
+    return mpeZoneConfig;
 }
 
 void JustaSampleAudioProcessor::configureModulationLfo(float rateHz, sampler::Lfo::Shape shape)
 {
+    {
+        juce::ScopedLock lock(voiceLock);
+        modulationLfoRateHz = juce::jlimit(0.01f, 40.0f, rateHz);
+        modulationLfoShape = shape;
+        multisampleEngine.configureLfo(modulationLfoRateHz, modulationLfoShape);
+    }
+    apvts.state.setProperty("JAS LFO Rate", modulationLfoRateHz, nullptr);
+    apvts.state.setProperty("JAS LFO Shape", int(shape), nullptr);
+}
+
+float JustaSampleAudioProcessor::getModulationLfoRate()
+{
     juce::ScopedLock lock(voiceLock);
-    multisampleEngine.configureLfo(rateHz, shape);
+    return modulationLfoRateHz;
+}
+
+sampler::Lfo::Shape JustaSampleAudioProcessor::getModulationLfoShape()
+{
+    juce::ScopedLock lock(voiceLock);
+    return modulationLfoShape;
 }
 
 void JustaSampleAudioProcessor::clearInstrument()

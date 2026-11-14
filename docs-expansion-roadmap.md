@@ -54,3 +54,34 @@ Zone range/velocity boundaries; overlapping layers; round-robin; serialization r
 
 ## Licensing
 Upstream project is MIT licensed. Preserve copyright and license notices. Audit every dependency separately before redistribution or commercial release.
+
+## Execution update — 2026-11-14
+
+### Completed in this pass
+
+- Added a processor-level integration target. It loads a WAV into a zone, receives MIDI, renders non-zero audio, edits a zone, restores instrument state asynchronously, restores MPE/LFO/modulation-matrix settings, loads a real `.jasz` file in the background, and checks time-effect tails.
+- Added resonant per-zone low-pass/high-pass/band-pass filtering, per-zone soft saturation, per-zone reverb/delay sends, and a shared preallocated reverb/delay output path. The delay defaults to 375 ms, 28% feedback and 38% wet return; the reverb defaults to a medium room.
+- Bumped `.jasz` serialization to v5 for time-effect sends. Backward compatibility is tested for v1–v4.
+- Changed processor state restoration to load the instrument on the cancellable background worker rather than synchronously decoding samples in the host state callback.
+- Added native JUCE workspaces: PLAY, MAP, EDIT, MOD and FX. MAP includes sample import, automatic key mapping, a keyboard range display, zone inspector, per-zone effects, slicing, and `.jasz` load/save. MOD includes MPE, LFO and modulation routing.
+- Added a user guide at `docs-multisample-workspace.md`.
+- Added a Windows x64 VST3 build/test workflow at `.github/workflows/windows-build.yml`.
+
+### Verification recorded
+
+- Universal macOS Debug AU and VST3 builds succeeded for x86_64 and arm64.
+- CTest: 2/2 passed.
+- Processor-level WAV/MIDI/state/.jasz/time-effect integration test passed.
+- AddressSanitizer and UndefinedBehaviorSanitizer expansion tests passed.
+- `auval` passed.
+- `pluginval` strictness level 10 passed.
+- Installed AU/VST3 bundles were copied from the verified build artifacts and code-signature verification passed.
+
+### Remaining external host gates
+
+1. Run the new Windows GitHub Actions workflow and fix any platform-specific failures it reveals.
+2. Test the installed AU/VST3 inside a separate Logic project, including sample import, mapping, MPE, preset recall and long-session stability. The existing open Logic project was deliberately left untouched.
+3. Profile 88-voice playback and large multisample sets on the 2017 Intel Mac before treating the build as production-ready.
+4. The JIVE compatibility spike did not complete within the local build window, so JIVE was not added. The production UI remains native JUCE to avoid an unverified layout dependency.
+
+The editor and engine are now integrated, but production readiness is still conditional on the Windows CI and separate real-Logic host gates above.

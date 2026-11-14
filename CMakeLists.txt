@@ -183,6 +183,10 @@ target_sources(JustASample PRIVATE
         Source/Components/Buttons.h
         Source/Components/FxChain.cpp
         Source/Components/FxChain.h
+        Source/Components/InstrumentMap.cpp
+        Source/Components/InstrumentMap.h
+        Source/Components/ModulationPanel.cpp
+        Source/Components/ModulationPanel.h
         Source/Components/FxDragTarget.h
         Source/Components/FxModule.cpp
         Source/Components/FxModule.h

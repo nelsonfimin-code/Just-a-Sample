@@ -87,3 +87,10 @@ A compact header should provide preset/sample name, load/save, undo/redo, voice 
 - foleys_gui_magic repository and BSD-3-Clause licence: https://github.com/ffAudio/foleys_gui_magic
 - The Audio Programmer, JUCE sampler UI series (2026-05-07): https://www.theaudioprogrammer.com/content/build-this-awesome-sampler-plugin-part-4-juce-ui-basics
 - OpenSampler (iPlug2-based reference): https://github.com/futureboard/opensampler
+
+
+## Implementation status (2026-11-14)
+
+The native JUCE workspace shell is now implemented with PLAY, MAP, EDIT, MOD and FX navigation. MAP includes sample import, keyboard zone lanes, selected-zone editing, per-zone filter/saturation/time-effect controls, transient slicing, and `.jasz` load/save. MOD includes MPE configuration, LFO controls and modulation route editing. The UI uses translucent graphite surfaces, thin light borders and restrained amber active states. Existing parameter attachments and the original sample workflow are retained.
+
+JIVE was not integrated: the isolated JUCE 8 compatibility spike did not finish within the available local build window, so compatibility was not established. Native JUCE remains the lower-risk implementation for the existing plug-in. The Windows CI and separate Logic-project host checks remain outstanding.

@@ -57,6 +57,10 @@ public:
     void loadSampleFromPath(const juce::String& path, bool resetParameters = true, const juce::String& expectedHash = "", bool continueWithWrongHash = false,
         const std::function<void(bool loadedSuccessfully)>& callback = [](bool) -> void {});
     bool loadInstrument(const sampler::InstrumentModel& model, juce::String* error = nullptr);
+    sampler::InstrumentModel getInstrumentModelSnapshot();
+    void loadInstrumentModelAsync(sampler::InstrumentModel model,
+                                  std::function<void(bool, const juce::String&)> callback = {});
+    bool updateInstrumentZone(const sampler::SampleZone& zone, juce::String* error = nullptr);
     // Loads a .jasz preset and its samples on a worker thread. Completion is posted to
     // the message thread. A newer load, single-sample load, clear, or explicit cancel
     // supersedes the request; superseded callbacks are intentionally not invoked.
@@ -66,8 +70,12 @@ public:
     void cancelInstrumentLoad() noexcept;
     void clearInstrument();
     void setModulationMatrix(const sampler::ModulationMatrix& matrix);
+    sampler::ModulationMatrix getModulationMatrixSnapshot();
     void setMPEZoneConfig(sampler::MPEZoneConfig config);
+    sampler::MPEZoneConfig getMPEZoneConfig();
     void configureModulationLfo(float rateHz, sampler::Lfo::Shape shape);
+    float getModulationLfoRate();
+    sampler::Lfo::Shape getModulationLfoShape();
     bool isMultisampleInstrumentLoaded() const noexcept
     {
         return multiSampleMode.load(std::memory_order_acquire);
@@ -181,9 +189,13 @@ private:
     struct InstrumentSample { juce::AudioBuffer<float> buffer; double sampleRate=44100.0; };
     sampler::InstrumentModel instrumentModel;
     sampler::MultisampleEngine multisampleEngine;
+    sampler::ModulationMatrix modulationMatrix;
+    sampler::MPEZoneConfig mpeZoneConfig;
+    float modulationLfoRateHz { 1.0f };
+    sampler::Lfo::Shape modulationLfoShape { sampler::Lfo::Shape::Sine };
     std::vector<InstrumentSample> instrumentSamples;
     std::atomic<bool> multiSampleMode{ false };
-    bool restoringInstrumentState{ false };
+    std::atomic<bool> restoringInstrumentState{ false };
     bool loadInstrumentInternal(const sampler::InstrumentModel& model, juce::String* error,
                                 std::uint64_t expectedGeneration);
     struct AsyncLifetime
@@ -195,6 +207,10 @@ private:
     juce::ThreadPool instrumentLoadPool{ 1 };
     juce::CriticalSection formatManagerLock;
     juce::AudioBuffer<float> sampleBuffer;
+    juce::AudioBuffer<float> multisampleSends;
+    juce::Reverb multisampleReverb;
+    std::vector<float> multisampleDelayLeft, multisampleDelayRight;
+    int multisampleDelayWriteIndex { 0 }, multisampleDelayFrames { 0 };
     float bufferSampleRate{ 0.f };
     SamplerParameters samplerSound;
     /** We manage MAX_VOICES for the duration of the plugin and control how many the synth has access to */

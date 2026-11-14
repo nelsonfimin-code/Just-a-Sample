@@ -268,7 +268,10 @@ void testInstrumentFileIO()
     InstrumentModel model;
     zone.filterMode = ZoneFilterMode::LowPass;
     zone.filterCutoffHz = 3200.0f;
+    zone.filterResonance = 0.65f;
     zone.driveDb = 6.0f;
+    zone.reverbSend = 0.35f;
+    zone.delaySend = 0.22f;
     assert(model.addZone(zone));
 
     const auto preset = root + "/KickKit.jasz";
@@ -279,16 +282,38 @@ void testInstrumentFileIO()
     assert(loaded.size() == 1 && loaded.zones()[0].sample.path == originalSample);
     assert(loaded.zones()[0].filterMode == ZoneFilterMode::LowPass);
     assert(std::abs(loaded.zones()[0].filterCutoffHz - 3200.0f) < 0.001f);
+    assert(std::abs(loaded.zones()[0].filterResonance - 0.65f) < 0.001f);
     assert(std::abs(loaded.zones()[0].driveDb - 6.0f) < 0.001f);
+    assert(std::abs(loaded.zones()[0].reverbSend - 0.35f) < 0.001f);
+    assert(std::abs(loaded.zones()[0].delaySend - 0.22f) < 0.001f);
+
+    // v4 retained resonance but did not yet have time-effect sends.
+    auto v4Bytes = model.serialize(&error);
+    v4Bytes[4] = 4; v4Bytes[5] = 0; v4Bytes[6] = 0; v4Bytes[7] = 0;
+    v4Bytes.resize(v4Bytes.size() - 8);
+    InstrumentModel v4Loaded;
+    assert(v4Loaded.deserialize(v4Bytes, &error));
+    assert(std::abs(v4Loaded.zones()[0].filterResonance - 0.65f) < 0.001f);
+    assert(v4Loaded.zones()[0].reverbSend == 0.0f && v4Loaded.zones()[0].delaySend == 0.0f);
+
+    // v3 did not contain resonance or time-effect sends.
+    auto v3Bytes = model.serialize(&error);
+    v3Bytes[4] = 3; v3Bytes[5] = 0; v3Bytes[6] = 0; v3Bytes[7] = 0;
+    v3Bytes.resize(v3Bytes.size() - 12);
+    InstrumentModel v3Loaded;
+    assert(v3Loaded.deserialize(v3Bytes, &error));
+    assert(v3Loaded.zones()[0].filterResonance == 0.0f);
+    assert(v3Loaded.zones()[0].reverbSend == 0.0f && v3Loaded.zones()[0].delaySend == 0.0f);
 
     // Newer zone effects fields must not break older v1/v2 instrument maps.
     auto v2Bytes = model.serialize(&error);
-    assert(v2Bytes.size() > 9);
+    assert(v2Bytes.size() > 21);
     v2Bytes[4] = 2; v2Bytes[5] = 0; v2Bytes[6] = 0; v2Bytes[7] = 0;
-    v2Bytes.resize(v2Bytes.size() - 9);
+    v2Bytes.resize(v2Bytes.size() - 21);
     InstrumentModel v2Loaded;
     assert(v2Loaded.deserialize(v2Bytes, &error));
     assert(v2Loaded.zones()[0].filterMode == ZoneFilterMode::Off);
+    assert(v2Loaded.zones()[0].filterResonance == 0.0f);
 
     auto v1Bytes = v2Bytes;
     v1Bytes[4] = 1;
@@ -348,6 +373,8 @@ void testPlaybackEngine()
     InstrumentModel playbackModel;
     auto playbackZone = makeZone("playback", 60, 60, 1, 127);
     playbackZone.rootKey = 60;
+    playbackZone.reverbSend = 0.4f;
+    playbackZone.delaySend = 0.25f;
     assert(playbackModel.addZone(playbackZone));
 
     float sampleLeft[8] = { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f };
@@ -374,8 +401,11 @@ void testPlaybackEngine()
 
     float outLeft[4] = {};
     float outRight[4] = {};
-    engine.render(outLeft, outRight, 4, 48000.0);
+    float reverbSendLeft[4] = {}, reverbSendRight[4] = {};
+    float delaySendLeft[4] = {}, delaySendRight[4] = {};
+    engine.render(outLeft, outRight, 4, 48000.0, reverbSendLeft, reverbSendRight, delaySendLeft, delaySendRight);
     assert(outLeft[0] >= 0.0f && outLeft[3] > 0.0f && outRight[3] > 0.0f);
+    assert(reverbSendLeft[0] > 0.0f && delaySendLeft[0] > 0.0f);
     engine.handleMidi({ EngineMidiEvent::Type::NoteOff, 2, 60, 0, 0 });
     assert(engine.activeVoices() == 1);
     float tailLeft[4096] = {};
@@ -388,6 +418,7 @@ void testPlaybackEngine()
         auto effectZone = makeZone("effect-mode", 60, 60, 1, 127);
         effectZone.filterMode = mode;
         effectZone.filterCutoffHz = 1200.0f;
+        effectZone.filterResonance = 0.85f;
         effectZone.driveDb = 12.0f;
         InstrumentModel effectModel;
         assert(effectModel.addZone(effectZone));

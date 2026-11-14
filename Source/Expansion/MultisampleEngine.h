@@ -19,7 +19,9 @@ public:
  void setModulationMatrix(const ModulationMatrix& matrix) noexcept { modulation_=matrix; }
  void configureLfo(float rateHz,Lfo::Shape shape) noexcept { lfoRateHz_=rateHz;lfoShape_=shape; }
  void handleMidi(const EngineMidiEvent&) noexcept;
- void render(float* left,float* right,std::size_t samples,double outputRate) noexcept;
+ void render(float* left,float* right,std::size_t samples,double outputRate,
+             float* reverbLeft=nullptr,float* reverbRight=nullptr,
+             float* delayLeft=nullptr,float* delayRight=nullptr) noexcept;
  std::size_t activeVoices()const noexcept;
 private:
  struct Voice {
@@ -31,7 +33,8 @@ private:
   float direction=1.0f,gain=1,zoneGainDb=0,pan=0,velocity=0,keyTrack=0,pressure=0,slide=0;
   float filterL=0,filterR=0,bandL=0,bandR=0,releaseGain=1,releaseStep=0,attackGain=1,attackStep=0;
   ZoneFilterMode filterMode=ZoneFilterMode::Off;
-  float filterCutoffHz=20000.0f,driveDb=0.0f;
+  float filterCutoffHz=20000.0f,filterResonance=0.0f,driveDb=0.0f;
+  float reverbSend=0.0f,delaySend=0.0f;
   Lfo lfo;
   bool active=false,releasing=false,keyDown=true,sustainHeld=false;
  };

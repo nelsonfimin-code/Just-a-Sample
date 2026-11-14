@@ -146,7 +146,10 @@ void MultisampleEngine::noteOn(std::uint8_t channel, std::uint8_t note, std::uin
         voice->pan = match.zone->pan;
         voice->filterMode = match.zone->filterMode;
         voice->filterCutoffHz = match.zone->filterCutoffHz;
+        voice->filterResonance = match.zone->filterResonance;
         voice->driveDb = match.zone->driveDb;
+        voice->reverbSend = match.zone->reverbSend;
+        voice->delaySend = match.zone->delaySend;
         voice->pressure = std::max(expression.pressure, mpe_.perNotePressure(channel, note));
         voice->slide = expression.slide;
         voice->sampleStart = static_cast<double>(sampleStart);
@@ -282,7 +285,9 @@ void MultisampleEngine::handleMidi(const EngineMidiEvent& event) noexcept
     }
 }
 
-void MultisampleEngine::render(float* left, float* right, std::size_t samples, double rate) noexcept
+void MultisampleEngine::render(float* left, float* right, std::size_t samples, double rate,
+                               float* reverbLeft, float* reverbRight,
+                               float* delayLeft, float* delayRight) noexcept
 {
     if (!left || !std::isfinite(rate) || rate <= 0.0)
         return;
@@ -365,9 +370,13 @@ void MultisampleEngine::render(float* left, float* right, std::size_t samples, d
             const auto effectiveFilterMode = voice.filterMode == ZoneFilterMode::Off
                 ? (filterEnabled ? ZoneFilterMode::LowPass : ZoneFilterMode::Off)
                 : voice.filterMode;
-            const auto alpha = filterEnabled
-                ? 1.0f - std::exp(-2.0f * pi * cutoff / float(rate))
-                : 1.0f;
+            const auto safeCutoff = std::clamp(cutoff, 20.0f, float(rate * 0.45));
+            const auto g = std::tan(pi * safeCutoff / float(rate));
+            const auto q = 0.70710678f + voice.filterResonance * 11.29289322f;
+            const auto k = 1.0f / q;
+            const auto a1 = 1.0f / (1.0f + g * (g + k));
+            const auto a2 = g * a1;
+            const auto a3 = g * a2;
 
             auto rawL = readInterpolated(audio.left, voice.position, voice.sampleEnd);
             auto rawR = readInterpolated(rightSamples, voice.position, voice.sampleEnd);
@@ -389,26 +398,32 @@ void MultisampleEngine::render(float* left, float* right, std::size_t samples, d
                 }
             }
 
-            voice.filterL += alpha * (rawL - voice.filterL);
-            voice.filterR += alpha * (rawR - voice.filterR);
+            const auto v3L = rawL - voice.bandL - k * voice.filterL;
+            const auto v1L = a1 * voice.filterL + a2 * v3L;
+            const auto v2L = voice.bandL + a2 * voice.filterL + a3 * v3L;
+            voice.filterL = 2.0f * v1L - voice.filterL;
+            voice.bandL = 2.0f * v2L - voice.bandL;
+            const auto v3R = rawR - voice.bandR - k * voice.filterR;
+            const auto v1R = a1 * voice.filterR + a2 * v3R;
+            const auto v2R = voice.bandR + a2 * voice.filterR + a3 * v3R;
+            voice.filterR = 2.0f * v1R - voice.filterR;
+            voice.bandR = 2.0f * v2R - voice.bandR;
             float filteredL = rawL;
             float filteredR = rawR;
             switch (effectiveFilterMode)
             {
                 case ZoneFilterMode::Off: break;
                 case ZoneFilterMode::LowPass:
-                    filteredL = voice.filterL;
-                    filteredR = voice.filterR;
+                    filteredL = v2L;
+                    filteredR = v2R;
                     break;
                 case ZoneFilterMode::HighPass:
-                    filteredL = rawL - voice.filterL;
-                    filteredR = rawR - voice.filterR;
+                    filteredL = rawL - k * v1L - v2L;
+                    filteredR = rawR - k * v1R - v2R;
                     break;
                 case ZoneFilterMode::BandPass:
-                    voice.bandL += alpha * ((rawL - voice.filterL) - voice.bandL);
-                    voice.bandR += alpha * ((rawR - voice.filterR) - voice.bandR);
-                    filteredL = voice.bandL;
-                    filteredR = voice.bandR;
+                    filteredL = v1L;
+                    filteredR = v1R;
                     break;
             }
             if (voice.driveDb > 0.001f)
@@ -425,9 +440,14 @@ void MultisampleEngine::render(float* left, float* right, std::size_t samples, d
             const auto gain = voice.gain * std::pow(10.0f, gainDb / 20.0f) * pressureGain
                             * voice.attackGain * voice.releaseGain;
 
-            left[i] += filteredL * gain * leftGain;
-            if (right)
-                right[i] += filteredR * gain * rightGain;
+            const auto outputL = filteredL * gain * leftGain;
+            const auto outputR = filteredR * gain * rightGain;
+            left[i] += outputL;
+            if (right) right[i] += outputR;
+            if (reverbLeft) reverbLeft[i] += outputL * voice.reverbSend;
+            if (reverbRight) reverbRight[i] += outputR * voice.reverbSend;
+            if (delayLeft) delayLeft[i] += outputL * voice.delaySend;
+            if (delayRight) delayRight[i] += outputR * voice.delaySend;
 
             const auto pitchStep = voice.step * std::exp2(pitchMod / 12.0f);
             if (voice.loopMode == ZoneLoopMode::PingPong
