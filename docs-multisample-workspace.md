@@ -50,5 +50,5 @@ Routes, MPE configuration and LFO settings are included in plug-in state recall.
 
 - The audio engine uses fixed-capacity voice and zone storage and preallocated send buffers. Sample decoding and transient analysis happen off the audio thread. Instrument decoding is capped at 512 MiB of decoded float audio per loaded instrument, and only the first two channels are retained because the engine renders stereo.
 - Zone filters use a resonant state-variable filter with low-pass, high-pass and band-pass modes.
-- The installed AU and VST3 are universal macOS builds for Intel and Apple Silicon.
-- Do not replace an open Logic session to load a new plug-in build. Close/reopen Logic or rescan plug-ins when ready to test the installed version in a separate project.
+- The latest generated Debug AU and VST3 build artifacts are universal macOS binaries for Intel and Apple Silicon. This does not mean the latest build is installed or host-validated.
+- Do not replace an open Logic session to load a new plug-in build. Save and close Logic before installing/rescanning, then test in a separate project.

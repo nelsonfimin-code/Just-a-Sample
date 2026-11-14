@@ -43,14 +43,16 @@ No file I/O, decoding, heap allocation, or blocking work in the audio callback o
 Zone range/velocity boundaries; overlapping layers; round-robin; serialization round-trip and malformed input; forward/ping-pong loops and crossfades; transient analysis and malformed input; MPE channel isolation and expression composition; modulation routes; voice allocation/stealing; sample-rate conversion; audio output and release; CPU/memory limits; AU/VST3 host validation on macOS; VST3 validation on Windows.
 
 ## Current verified status (2026-11-14)
-- Latest universal macOS Debug AU and VST3 builds succeed for x86_64 and arm64.
-- Both installed bundles pass deep/strict code-signature verification.
-- AU installed at ~/Library/Audio/Plug-Ins/Components/Just a Sample.component; Apple's complete auval -v aumu Bpf2 Manu suite passes, including render, MIDI, format, and parameter tests.
-- VST3 installed at ~/Library/Audio/Plug-Ins/VST3/Just a Sample.vst3; pluginval strictness levels 5 and 10 both pass, including parameter fuzzing, state restore, automation, bus configuration, and processing tests. The optional standalone Steinberg VST3 validator was not configured in pluginval.
-- sampler_expansion_tests and sampler_processor_tests pass through CTest (2/2). The processor integration test loads a real WAV, renders finite nonzero audio from MIDI, serializes/restores the instrument through plugin state, then loads a real .jasz preset on the background worker and renders again. The expansion suite also passes AddressSanitizer and UndefinedBehaviorSanitizer, including v1/v2 preset compatibility and per-zone filter modes.
-- The native JUCE editor now exposes PLAY, MAP, EDIT, MOD and FX workspaces. MAP supports sample import, automatic mapping, zone selection, key/velocity ranges, root note, round robin, fades, sample start/end, forward/ping-pong loop boundaries and crossfade, per-zone resonant filtering/saturation/reverb/delay sends, slicing, and .jasz load/save. EDIT is a focused waveform workspace. MOD exposes MPE, LFO and modulation routing. The separate Logic host review is still outstanding.
-- Forward/ping-pong looping, forward-loop crossfade, transient marker analysis, and transient-to-slice zone generation are implemented. Slice audition through generated zones is supported by the engine API but not yet exposed in the UI.
-- Missing-sample relinking is implemented and tested for unique and ambiguous filename matches. In-DAW multisample editing, Windows runtime validation, and a real Logic project test of multisample loading/state round-trip remain open.
+
+- Latest universal macOS Debug AU and VST3 build artifacts completed successfully for x86_64 and arm64.
+- Both generated build bundles pass `codesign --verify --deep --strict`. This verifies bundle signatures, not host compatibility.
+- CTest passes 2/2 registered tests: `sampler_expansion_tests` and `sampler_processor_tests`.
+- The Envelope1 modulation correction is covered by a regression test that failed before the fix and passes after it.
+- Commit `46a463a` (`Drive envelope modulation from full voice envelope`) is pushed to `origin/feature/instrument-zones-mpe`; the local worktree is clean.
+- The newly built bundles have **not** been installed over the user's existing plug-ins because Logic was open. The current installed binaries therefore must not be assumed to contain this commit.
+- AU validation is still open. A previous `auval -v aumu Bpf2 Manu` attempt failed to discover/read the component name and version; the latest build has not yet passed `auval`.
+- VST3 host validation is still open. `pluginval` is not installed on the development Mac, and no real DAW playback test has been completed for this build.
+- ASan/UBSan were not run as part of this latest verification pass.
 
 ## Licensing
 Upstream project is MIT licensed. Preserve copyright and license notices. Audit every dependency separately before redistribution or commercial release.
@@ -69,13 +71,7 @@ Upstream project is MIT licensed. Preserve copyright and license notices. Audit 
 
 ### Verification recorded
 
-- Universal macOS Debug AU and VST3 builds succeeded for x86_64 and arm64.
-- CTest: 2/2 passed.
-- Processor-level WAV/MIDI/state/.jasz/time-effect integration test passed.
-- AddressSanitizer and UndefinedBehaviorSanitizer expansion tests passed.
-- `auval` passed.
-- `pluginval` strictness level 10 passed.
-- Installed AU/VST3 bundles were copied from the verified build artifacts and code-signature verification passed.
+The latest verification is listed in **Current verified status** above. In particular, build, CTest and code-signature checks passed; AU/VST3 host validation, installation of this build, and sanitizer runs remain outstanding.
 
 ### Remaining external host gates
 
