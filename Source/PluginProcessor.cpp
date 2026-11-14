@@ -11,6 +11,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "PluginParameters.h"
+#include <climits>
+#include <cstring>
 #include "Sampler/CustomSynthesizer.h"
 
 #if JUCE_DEBUG
@@ -134,6 +136,8 @@ void JustaSampleAudioProcessor::prepareToPlay(double sampleRate, int /*maximumEx
     samplerVoices.clear();
 
     synth.setCurrentPlaybackSampleRate(sampleRate);
+    multisampleEngine.reset();
+    multisampleEngine.setOutputSampleRate(sampleRate);
 
     for (int i = 0; i < PluginParameters::MAX_VOICES; i++)
     {
@@ -175,16 +179,46 @@ void JustaSampleAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         }
     }
 
-    if (sampleBuffer.getNumSamples() == 0 || sampleBuffer.getNumChannels() == 0)
-        return;
-
     juce::ScopedTryLock lock(voiceLock);
 
     if (lock.isLocked())
     {
-        adjustVoiceCount();
-
-        synth.renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
+        if (multiSampleMode)
+        {
+            multisampleEngine.setVoiceLimit(std::size_t(juce::jlimit(1, PluginParameters::MAX_VOICES, int(p(PluginParameters::NUM_VOICES)))));
+            int renderedTo = 0;
+            for (const auto metadata : midiMessages)
+            {
+                const auto position = juce::jlimit(renderedTo, buffer.getNumSamples(), metadata.samplePosition);
+                if (position > renderedTo)
+                    multisampleEngine.render(buffer.getWritePointer(0) + renderedTo,
+                        buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) + renderedTo : nullptr,
+                        std::size_t(position - renderedTo), getSampleRate());
+                const auto& message = metadata.getMessage();
+                sampler::EngineMidiEvent event;
+                event.channel = std::uint8_t(message.getChannel());
+                event.note = std::uint8_t(message.getNoteNumber());
+                bool supported = true;
+                if (message.isNoteOn()) { event.type = sampler::EngineMidiEvent::Type::NoteOn; event.value = std::uint16_t(juce::roundToInt(message.getFloatVelocity() * 127.0f)); }
+                else if (message.isNoteOff()) { event.type = sampler::EngineMidiEvent::Type::NoteOff; }
+                else if (message.isPitchWheel()) { event.type = sampler::EngineMidiEvent::Type::PitchBend; event.value = std::uint16_t(message.getPitchWheelValue()); }
+                else if (message.isChannelPressure()) { event.type = sampler::EngineMidiEvent::Type::ChannelPressure; event.value = std::uint16_t(message.getChannelPressureValue()); }
+                else if (message.isAftertouch()) { event.type = sampler::EngineMidiEvent::Type::PolyPressure; event.value = std::uint16_t(message.getAfterTouchValue()); }
+                else if (message.isController()) { event.type = sampler::EngineMidiEvent::Type::ControlChange; event.controller = std::uint8_t(message.getControllerNumber()); event.value = std::uint16_t(message.getControllerValue()); }
+                else supported = false;
+                if (supported) multisampleEngine.handleMidi(event);
+                renderedTo = position;
+            }
+            if (renderedTo < buffer.getNumSamples())
+                multisampleEngine.render(buffer.getWritePointer(0) + renderedTo,
+                    buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) + renderedTo : nullptr,
+                    std::size_t(buffer.getNumSamples() - renderedTo), getSampleRate());
+        }
+        else if (sampleBuffer.getNumSamples() > 0 && sampleBuffer.getNumChannels() > 0)
+        {
+            adjustVoiceCount();
+            synth.renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
+        }
 
 #if JUCE_DEBUG
         for (int ch = 0; ch < buffer.getNumChannels(); ch++)
@@ -229,6 +263,13 @@ void JustaSampleAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     spv(PluginParameters::State::HEIGHT) = pluginState.height.load();
     spv(PluginParameters::State::FILE_PATH) = pluginState.filePath.load();
     spv(PluginParameters::State::SAMPLE_HASH) = pluginState.sampleHash.load();
+    {
+        juce::ScopedLock lock(voiceLock);
+        std::string serializationError;
+        const auto instrumentBytes = instrumentModel.size() > 0 ? instrumentModel.serialize(&serializationError) : std::vector<std::uint8_t>{};
+        juce::MemoryBlock instrumentData(instrumentBytes.data(), instrumentBytes.size());
+        spv(PluginParameters::State::INSTRUMENT_DATA) = instrumentBytes.empty() ? juce::String{} : instrumentData.toBase64Encoding();
+    }
     spv(PluginParameters::State::USING_FILE_REFERENCE) = pluginState.usingFileReference.load();
     spv(PluginParameters::State::RECENT_FILES) = pluginState.recentFiles.load();
     if (const auto stateXml = deviceManager.createStateXml())
@@ -299,6 +340,26 @@ void JustaSampleAudioProcessor::setStateInformation(const void* data, int sizeIn
     {
         apvts.replaceState(tree);
 
+        const auto encodedInstrument = sp(PluginParameters::State::INSTRUMENT_DATA).toString();
+        restoringInstrumentState = false;
+        if (encodedInstrument.isNotEmpty())
+        {
+            juce::MemoryBlock instrumentData;
+            if (instrumentData.fromBase64Encoding(encodedInstrument))
+            {
+                std::vector<std::uint8_t> bytes(instrumentData.getSize());
+                if (!bytes.empty()) std::memcpy(bytes.data(), instrumentData.getData(), bytes.size());
+                sampler::InstrumentModel restoredInstrument;
+                restoringInstrumentState = restoredInstrument.deserialize(bytes) && loadInstrument(restoredInstrument);
+            }
+        }
+        else if (multiSampleMode)
+            clearInstrument();
+        const auto finishInstrumentRestore = [this]
+        {
+            restoringInstrumentState = false;
+        };
+
         // Load the plugin state struct
         pluginState.width = sp(PluginParameters::State::WIDTH);
         pluginState.height = sp(PluginParameters::State::HEIGHT);
@@ -345,19 +406,23 @@ void JustaSampleAudioProcessor::setStateInformation(const void* data, int sizeIn
         juce::String filePath = pluginState.filePath;
         if (pluginState.usingFileReference && filePath.isNotEmpty() && newFile)
         {
-            loadSampleFromPath(filePath, false, sampleHash, false, [this, filePath, updateFileInfo, sampleHash](bool fileLoaded) -> void
+            loadSampleFromPath(filePath, false, sampleHash, false, [this, filePath, updateFileInfo, sampleHash, finishInstrumentRestore](bool fileLoaded) -> void
                 {
                     if (!fileLoaded)  // Either the file was not found, loaded incorrectly, or the hash was incorrect
                     {
                         openFileChooser("File was not found. Please locate " + juce::File(filePath).getFileName(),
-                            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, updateFileInfo, sampleHash](const juce::FileChooser& chooser)
+                            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, updateFileInfo, sampleHash, finishInstrumentRestore](const juce::FileChooser& chooser)
                             {
                                 auto file = chooser.getResult();
-                                loadSampleFromPath(file.getFullPathName(), false, sampleHash, true, 
-                                    [updateFileInfo](bool loaded) { if (loaded) updateFileInfo(); });
+                                loadSampleFromPath(file.getFullPathName(), false, sampleHash, true,
+                                    [updateFileInfo, finishInstrumentRestore](bool loaded) { if (loaded) updateFileInfo(); finishInstrumentRestore(); });
                             });
                     }
-                    else updateFileInfo();
+                    else
+                    {
+                        updateFileInfo();
+                        finishInstrumentRestore();
+                    }
                 });
         }
         else if (sampleSize && newFile)
@@ -373,18 +438,25 @@ void JustaSampleAudioProcessor::setStateInformation(const void* data, int sizeIn
             {
                 lastLoadAttempt = "";
                 reaperExtensions.setNamedConfigParam(REAPER_FILE_PATH, "");
-                sampleLoader.loadSample(std::move(wavFormatReader), [this, sampleData /* necessary capture */, updateFileInfo, sampleHash]
+                sampleLoader.loadSample(std::move(wavFormatReader), [this, sampleData /* necessary capture */, updateFileInfo, sampleHash, finishInstrumentRestore]
                 (const std::unique_ptr<juce::AudioBuffer<float>>& loadedSample, const juce::String&, const std::unique_ptr<juce::AudioFormatReader>& reader) -> void
                     {
                         if (!reader)
+                        {
+                            finishInstrumentRestore();
                             return;
+                        }
 
                         loadSample(*loadedSample, int(reader->sampleRate), false, sampleHash);
-
                         updateFileInfo();
+                        finishInstrumentRestore();
                     });
             }
+            else
+                finishInstrumentRestore();
         }
+        else
+            finishInstrumentRestore();
     }
 }
 
@@ -394,6 +466,13 @@ void JustaSampleAudioProcessor::loadSample(juce::AudioBuffer<float>& sample, int
     juce::ScopedLock lock(voiceLock);
 
     haltVoices();
+    if (!restoringInstrumentState)
+    {
+        multisampleEngine.reset();
+        instrumentSamples.clear();
+        instrumentModel.clear();
+        multiSampleMode = false;
+    }
 
     sampleBuffer = std::move(sample);
     bufferSampleRate = float(sampleRate);
@@ -422,6 +501,84 @@ void JustaSampleAudioProcessor::loadSample(juce::AudioBuffer<float>& sample, int
     samplerSound.sampleChanged(int(bufferSampleRate));
     for (const auto& voice : samplerVoices)
         voice->initializeSample();
+}
+
+bool JustaSampleAudioProcessor::loadInstrument(const sampler::InstrumentModel& model, juce::String* error)
+{
+    auto fail = [error](const juce::String& message) { if (error) *error = message; return false; };
+    if (model.size() == 0 || model.size() > sampler::MultisampleEngine::maxZones)
+        return fail("Instrument must contain between 1 and 128 zones.");
+    std::string validationError;
+    if (!model.validate(&validationError)) return fail(validationError);
+
+    std::vector<InstrumentSample> loaded;
+    loaded.reserve(model.size());
+    for (const auto& zone : model.zones())
+    {
+        const juce::File file{ juce::String(zone.sample.path) };
+        std::unique_ptr<juce::AudioFormatReader> reader{ formatManager.createReaderFor(file) };
+        if (!reader || reader->lengthInSamples <= 0 || reader->lengthInSamples > INT_MAX)
+            return fail("Could not read sample file: " + file.getFileName());
+        InstrumentSample sample;
+        sample.sampleRate = reader->sampleRate;
+        sample.buffer.setSize(int(reader->numChannels), int(reader->lengthInSamples));
+        if (!reader->read(&sample.buffer, 0, int(reader->lengthInSamples), 0, true, true))
+            return fail("Failed while decoding sample: " + file.getFileName());
+        loaded.push_back(std::move(sample));
+    }
+
+    juce::ScopedLock lock(voiceLock);
+    juce::ScopedNoDenormals noDenormals;
+    sampler::InstrumentModel candidate = model;
+    std::vector<sampler::ZoneAudio> zoneAudio;
+    zoneAudio.reserve(candidate.size());
+    for (std::size_t i = 0; i < candidate.zones().size(); ++i)
+    {
+        auto& sample = loaded[i];
+        auto& zone = candidate.zones()[i];
+        zone.sample.sampleRate = sample.sampleRate;
+        zone.sample.channels = std::uint32_t(sample.buffer.getNumChannels());
+        zone.sample.frames = std::uint64_t(sample.buffer.getNumSamples());
+        zoneAudio.push_back({ &zone, sample.buffer.getReadPointer(0),
+            sample.buffer.getNumChannels() > 1 ? sample.buffer.getReadPointer(1) : nullptr,
+            std::uint64_t(sample.buffer.getNumSamples()), sample.sampleRate });
+    }
+    if (!multisampleEngine.setInstrument(candidate, zoneAudio.data(), zoneAudio.size()))
+        return fail("The instrument sample map could not be prepared.");
+    multisampleEngine.setVoiceLimit(std::size_t(juce::jlimit(1, PluginParameters::MAX_VOICES, int(p(PluginParameters::NUM_VOICES)))));
+    haltVoices();
+    instrumentModel = std::move(candidate);
+    instrumentSamples = std::move(loaded);
+    multisampleEngine.setOutputSampleRate(getSampleRate());
+    multiSampleMode = true;
+    return true;
+}
+
+void JustaSampleAudioProcessor::setModulationMatrix(const sampler::ModulationMatrix& matrix)
+{
+    juce::ScopedLock lock(voiceLock);
+    multisampleEngine.setModulationMatrix(matrix);
+}
+
+void JustaSampleAudioProcessor::setMPEZoneConfig(sampler::MPEZoneConfig config)
+{
+    juce::ScopedLock lock(voiceLock);
+    multisampleEngine.setMPEZoneConfig(config);
+}
+
+void JustaSampleAudioProcessor::configureModulationLfo(float rateHz, sampler::Lfo::Shape shape)
+{
+    juce::ScopedLock lock(voiceLock);
+    multisampleEngine.configureLfo(rateHz, shape);
+}
+
+void JustaSampleAudioProcessor::clearInstrument()
+{
+    juce::ScopedLock lock(voiceLock);
+    multisampleEngine.reset();
+    instrumentSamples.clear();
+    instrumentModel.clear();
+    multiSampleMode = false;
 }
 
 void JustaSampleAudioProcessor::loadSampleFromPath(const juce::String& path, bool resetParameters, const juce::String& expectedHash, bool continueWithWrongHash, const std::function<void(bool)>& callback)

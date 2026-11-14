@@ -210,7 +210,12 @@ target_sources(JustASample PRIVATE
         Source/Expansion/InstrumentModel.h
         Source/Expansion/InstrumentModel.cpp
         Source/Expansion/MPEExpression.h
+        Source/Expansion/MPEExpression.h
         Source/Expansion/MPEExpression.cpp
+        Source/Expansion/ModulationMatrix.h
+        Source/Expansion/ModulationMatrix.cpp
+        Source/Expansion/MultisampleEngine.h
+        Source/Expansion/MultisampleEngine.cpp
         Source/Sampler/SamplerParameters.cpp
         Source/Sampler/SamplerParameters.h
         Source/Sampler/Stretcher.h
@@ -356,7 +361,11 @@ include(CTest)
 if (BUILD_TESTING)
     add_executable(sampler_expansion_tests
         Source/Expansion/InstrumentModel.cpp
+        Source/Expansion/MPEExpression.h
         Source/Expansion/MPEExpression.cpp
+        Source/Expansion/ModulationMatrix.h
+        Source/Expansion/ModulationMatrix.cpp
+        Source/Expansion/MultisampleEngine.cpp
         tests/test_sampler_expansion.cpp
     )
     add_test(NAME sampler_expansion_tests COMMAND sampler_expansion_tests)

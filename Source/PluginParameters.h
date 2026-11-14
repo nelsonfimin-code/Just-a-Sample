@@ -41,6 +41,7 @@ struct State
     inline static const String FILE_PATH{ "File Path" };
     ListenableMutex<String> sampleHash{ "" };
     inline static const String SAMPLE_HASH{ "Sample Hash" };
+    inline static const String INSTRUMENT_DATA{ "Instrument Data" };
     ListenableAtomic<bool> usingFileReference{ false };
     inline static const String USING_FILE_REFERENCE{ "Using File Reference" };
     ListenableMutex<StringArray> recentFiles;

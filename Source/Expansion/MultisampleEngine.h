@@ -1,0 +1,37 @@
+#pragma once
+#include "InstrumentModel.h"
+#include "MPEExpression.h"
+#include "ModulationMatrix.h"
+#include <array>
+#include <cstddef>
+#include <cstdint>
+namespace sampler {
+struct ZoneAudio { const SampleZone* zone=nullptr;const float* left=nullptr;const float* right=nullptr;std::uint64_t frames=0;double sampleRate=44100.0; };
+struct EngineMidiEvent { enum class Type : std::uint8_t { NoteOn,NoteOff,PitchBend,ChannelPressure,PolyPressure,ControlChange };Type type=Type::NoteOn;std::uint8_t channel=1,note=0,controller=0;std::uint16_t value=0; };
+class MultisampleEngine {
+public:
+ static constexpr std::size_t maxZones=128,maxVoices=256;
+ bool setInstrument(const InstrumentModel&,const ZoneAudio*,std::size_t);
+ void reset() noexcept;
+ void setOutputSampleRate(double rate) noexcept;
+ void setVoiceLimit(std::size_t voices) noexcept;
+ void setMPEZoneConfig(MPEZoneConfig config) noexcept;
+ void setModulationMatrix(const ModulationMatrix& matrix) noexcept { modulation_=matrix; }
+ void configureLfo(float rateHz,Lfo::Shape shape) noexcept { lfoRateHz_=rateHz;lfoShape_=shape; }
+ void handleMidi(const EngineMidiEvent&) noexcept;
+ void render(float* left,float* right,std::size_t samples,double outputRate) noexcept;
+ std::size_t activeVoices()const noexcept;
+private:
+ struct Voice { const ZoneAudio* audio=nullptr;std::uint8_t channel=1,note=0;double position=0,step=1;float gain=1,zoneGainDb=0,pan=0,velocity=0,keyTrack=0,pressure=0,slide=0,filterL=0,filterR=0,releaseGain=1,releaseStep=0,attackGain=1,attackStep=0;Lfo lfo;bool active=false,releasing=false,keyDown=true; };
+ Voice* allocateVoice()noexcept;
+ void noteOn(std::uint8_t,std::uint8_t,std::uint8_t)noexcept;
+ void noteOff(std::uint8_t,std::uint8_t)noexcept;
+ void refreshExpression(std::uint8_t)noexcept;
+ ModulationInputs inputsFor(const Voice&,float lfoValue)const noexcept;
+ std::array<ZoneAudio,maxZones> audio_{};std::size_t audioCount_=0;
+ InstrumentModel instrument_;std::array<Voice,maxVoices> voices_{};
+ MPEExpression mpe_;ModulationMatrix modulation_;std::size_t voiceLimit_=88;
+ float lfoRateHz_=1.0f;Lfo::Shape lfoShape_=Lfo::Shape::Sine;
+ double outputRate_=44100.0;
+};
+}

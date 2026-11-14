@@ -23,6 +23,7 @@
 #include <JuceHeader.h>
 
 #include "CustomLookAndFeel.h"
+#include "Expansion/MultisampleEngine.h"
 #include "Sampler/CustomSamplerVoice.h"
 #include "Sampler/CustomSynthesizer.h"
 #include "Utilities/PitchDetector.h"
@@ -55,6 +56,12 @@ public:
     */
     void loadSampleFromPath(const juce::String& path, bool resetParameters = true, const juce::String& expectedHash = "", bool continueWithWrongHash = false,
         const std::function<void(bool loadedSuccessfully)>& callback = [](bool) -> void {});
+    bool loadInstrument(const sampler::InstrumentModel& model, juce::String* error = nullptr);
+    void clearInstrument();
+    void setModulationMatrix(const sampler::ModulationMatrix& matrix);
+    void setMPEZoneConfig(sampler::MPEZoneConfig config);
+    void configureModulationLfo(float rateHz, sampler::Lfo::Shape shape);
+    bool isMultisampleInstrumentLoaded() const noexcept { return multiSampleMode; }
 
     /** Open a file chooser */
     void openFileChooser(const juce::String& message, int flags, const std::function<void(const juce::FileChooser&)>& callback, bool wavOnly = false);
@@ -161,6 +168,12 @@ private:
     CustomSynthesizer synth;
 
     /** Note that this is referenced directly by the Editor. As such, it should only be modified in the Message Thread. */
+    struct InstrumentSample { juce::AudioBuffer<float> buffer; double sampleRate=44100.0; };
+    sampler::InstrumentModel instrumentModel;
+    sampler::MultisampleEngine multisampleEngine;
+    std::vector<InstrumentSample> instrumentSamples;
+    bool multiSampleMode{ false };
+    bool restoringInstrumentState{ false };
     juce::AudioBuffer<float> sampleBuffer;
     float bufferSampleRate{ 0.f };
     SamplerParameters samplerSound;

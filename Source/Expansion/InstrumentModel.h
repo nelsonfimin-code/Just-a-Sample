@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 namespace sampler {
@@ -23,9 +24,10 @@ class InstrumentModel {
 public:
  bool addZone(SampleZone,std::string* error=nullptr); bool replaceZone(const std::string&,SampleZone,std::string* error=nullptr);
  bool removeZone(const std::string&); void clear()noexcept; bool validate(std::string* error=nullptr)const;
- // Call only while the zone list is immutable; this selector performs no heap allocation.
  ZoneSelection select(std::uint8_t note,std::uint8_t velocity)noexcept;
- const std::vector<SampleZone>& zones()const noexcept{return zones_;} std::size_t size()const noexcept{return zones_.size();}
+ std::vector<std::uint8_t> serialize(std::string* error=nullptr)const;
+ bool deserialize(std::span<const std::uint8_t>,std::string* error=nullptr);
+ std::vector<SampleZone>& zones()noexcept{return zones_;} const std::vector<SampleZone>& zones()const noexcept{return zones_;} std::size_t size()const noexcept{return zones_.size();}
 private:
  static bool valid(const SampleZone&,std::string*); static float fadeGain(int,int,int,int,int);
  std::vector<SampleZone> zones_;std::array<std::size_t,256> roundRobinCursor_{};
