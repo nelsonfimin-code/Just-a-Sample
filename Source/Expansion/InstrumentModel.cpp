@@ -25,7 +25,25 @@ public:
 private:std::span<const std::uint8_t>b;std::size_t pos=0;
 };
 }
-bool InstrumentModel::valid(const SampleZone& z,std::string* e){auto fail=[&](const char* m){if(e)*e=m;return false;};if(z.id.empty())return fail("Zone id is empty.");if(z.sample.id.empty()||z.sample.path.empty())return fail("Sample reference is incomplete.");if(!std::isfinite(z.sample.sampleRate)||z.sample.sampleRate<=0)return fail("Invalid sample rate.");if(!z.sample.channels||!z.sample.frames)return fail("Sample has no audio frames or channels.");if(z.keyLow>z.keyHigh||z.velocityLow==0||z.velocityLow>z.velocityHigh)return fail("Invalid key or velocity range.");if(z.rootKey<z.keyLow||z.rootKey>z.keyHigh)return fail("Root key must be inside key range.");if(!std::isfinite(z.gainDb)||z.gainDb< -96||z.gainDb>24)return fail("Gain must be -96 to +24 dB.");if(!std::isfinite(z.pan)||z.pan< -1||z.pan>1)return fail("Pan must be -1 to +1.");return true;}
+bool InstrumentModel::valid(const SampleZone& z,std::string* e){
+ auto fail=[&](const char* m){if(e)*e=m;return false;};
+ if(z.id.empty())return fail("Zone id is empty.");
+ if(z.sample.id.empty()||z.sample.path.empty())return fail("Sample reference is incomplete.");
+ if(!std::isfinite(z.sample.sampleRate)||z.sample.sampleRate<=0)return fail("Invalid sample rate.");
+ if(!z.sample.channels||!z.sample.frames)return fail("Sample has no audio frames or channels.");
+ if(z.keyLow>z.keyHigh||z.velocityLow==0||z.velocityLow>z.velocityHigh)return fail("Invalid key or velocity range.");
+ if(z.rootKey<z.keyLow||z.rootKey>z.keyHigh)return fail("Root key must be inside key range.");
+ if(!std::isfinite(z.gainDb)||z.gainDb< -96||z.gainDb>24)return fail("Gain must be -96 to +24 dB.");
+ if(!std::isfinite(z.pan)||z.pan< -1||z.pan>1)return fail("Pan must be -1 to +1.");
+ const auto end=z.sampleEnd==0?z.sample.frames:z.sampleEnd;
+ if(z.sampleStart>=z.sample.frames||end<=z.sampleStart||end>z.sample.frames)return fail("Invalid sample start/end range.");
+ if(z.loopMode!=ZoneLoopMode::Off){
+  if(z.loopMode!=ZoneLoopMode::Forward&&z.loopMode!=ZoneLoopMode::PingPong)return fail("Invalid loop mode.");
+  if(z.loopStart<z.sampleStart||z.loopEnd<=z.loopStart||z.loopEnd>end)return fail("Loop range must be inside the playback range.");
+  if(z.loopCrossfadeFrames>(z.loopEnd-z.loopStart)/2)return fail("Loop crossfade cannot exceed half the loop length.");
+ }else if(z.loopCrossfadeFrames!=0)return fail("Loop crossfade requires an enabled loop.");
+ return true;
+}
 bool InstrumentModel::addZone(SampleZone z,std::string* e){if(!valid(z,e))return false;if(zones_.size()>=maxZones){if(e)*e="Instrument zone limit reached.";return false;}if(std::any_of(zones_.begin(),zones_.end(),[&](const auto& x){return x.id==z.id;})){if(e)*e="Duplicate zone id.";return false;}zones_.push_back(std::move(z));return true;}
 bool InstrumentModel::replaceZone(const std::string& id,SampleZone z,std::string* e){if(!valid(z,e))return false;auto it=std::find_if(zones_.begin(),zones_.end(),[&](const auto& x){return x.id==id;});if(it==zones_.end()){if(e)*e="Zone not found.";return false;}if(z.id!=id&&std::any_of(zones_.begin(),zones_.end(),[&](const auto& x){return x.id==z.id;})){if(e)*e="Replacement id already exists.";return false;}*it=std::move(z);return true;}
 bool InstrumentModel::removeZone(const std::string& id){auto n=zones_.size();std::erase_if(zones_,[&](const auto& z){return z.id==id;});return zones_.size()!=n;}
@@ -44,23 +62,29 @@ ZoneSelection InstrumentModel::select(std::uint8_t note,std::uint8_t vel)noexcep
 bool InstrumentModel::validate(std::string* e)const{std::set<std::string> ids;for(const auto& z:zones_){if(!valid(z,e))return false;if(!ids.insert(z.id).second){if(e)*e="Duplicate zone id.";return false;}}return true;}
 std::vector<std::uint8_t> InstrumentModel::serialize(std::string* e)const{
  if(!validate(e)||zones_.size()>maxZones)return {};
- std::vector<std::uint8_t>b;b.reserve(16+zones_.size()*96);b.insert(b.end(),{'J','A','S','Z'});putU32(b,1);putU32(b,std::uint32_t(zones_.size()));
+ std::vector<std::uint8_t>b;b.reserve(16+zones_.size()*96);b.insert(b.end(),{'J','A','S','Z'});putU32(b,2);putU32(b,std::uint32_t(zones_.size()));
  for(const auto& z:zones_){if(!putString(b,z.id)||!putString(b,z.sample.id)||!putString(b,z.sample.path)){if(e)*e="Instrument string exceeds storage limit.";return {};}
   putDouble(b,z.sample.sampleRate);putU32(b,z.sample.channels);putU64(b,z.sample.frames);
   b.insert(b.end(),{z.keyLow,z.keyHigh,z.velocityLow,z.velocityHigh,z.rootKey});
   putFloat(b,z.gainDb);putFloat(b,z.pan);b.insert(b.end(),{z.roundRobinGroup,z.keyFadeIn,z.keyFadeOut,z.velocityFadeIn,z.velocityFadeOut});
+  putU64(b,z.sampleStart);putU64(b,z.sampleEnd);putU64(b,z.loopStart);putU64(b,z.loopEnd);putU32(b,z.loopCrossfadeFrames);b.push_back(std::uint8_t(z.loopMode));
  }
  return b;
 }
 bool InstrumentModel::deserialize(std::span<const std::uint8_t> bytes,std::string* e){
  auto fail=[&](const char* m){if(e)*e=m;return false;};
  if(bytes.size()<12||std::memcmp(bytes.data(),"JASZ",4)!=0)return fail("Invalid instrument file signature.");
- Reader r(bytes.subspan(4));std::uint32_t version=0,count=0;if(!r.u32(version)||version!=1)return fail("Unsupported instrument file version.");
+ Reader r(bytes.subspan(4));std::uint32_t version=0,count=0;if(!r.u32(version)||(version!=1&&version!=2))return fail("Unsupported instrument file version.");
  if(!r.u32(count)||count>maxZones)return fail("Invalid instrument zone count.");
  InstrumentModel candidate;
  for(std::uint32_t i=0;i<count;++i){SampleZone z;
   if(!r.str(z.id)||!r.str(z.sample.id)||!r.str(z.sample.path)||!r.f64(z.sample.sampleRate)||!r.u32(z.sample.channels)||!r.u64(z.sample.frames))return fail("Truncated instrument sample reference.");
   if(!r.u8(z.keyLow)||!r.u8(z.keyHigh)||!r.u8(z.velocityLow)||!r.u8(z.velocityHigh)||!r.u8(z.rootKey)||!r.f32(z.gainDb)||!r.f32(z.pan)||!r.u8(z.roundRobinGroup)||!r.u8(z.keyFadeIn)||!r.u8(z.keyFadeOut)||!r.u8(z.velocityFadeIn)||!r.u8(z.velocityFadeOut))return fail("Truncated instrument zone.");
+  if(version>=2){
+   std::uint8_t loopMode=0;
+   if(!r.u64(z.sampleStart)||!r.u64(z.sampleEnd)||!r.u64(z.loopStart)||!r.u64(z.loopEnd)||!r.u32(z.loopCrossfadeFrames)||!r.u8(loopMode))return fail("Truncated sample playback settings.");
+   z.loopMode=ZoneLoopMode(loopMode);
+  }
   if(!candidate.addZone(std::move(z),e))return false;
  }
  if(!r.done())return fail("Unexpected trailing instrument data.");

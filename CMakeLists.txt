@@ -216,6 +216,10 @@ target_sources(JustASample PRIVATE
         Source/Expansion/ModulationMatrix.cpp
         Source/Expansion/MultisampleEngine.h
         Source/Expansion/MultisampleEngine.cpp
+        Source/Expansion/SampleAnalysis.h
+        Source/Expansion/SampleAnalysis.cpp
+        Source/Expansion/InstrumentFileIO.h
+        Source/Expansion/InstrumentFileIO.cpp
         Source/Sampler/SamplerParameters.cpp
         Source/Sampler/SamplerParameters.h
         Source/Sampler/Stretcher.h
@@ -366,6 +370,8 @@ if (BUILD_TESTING)
         Source/Expansion/ModulationMatrix.h
         Source/Expansion/ModulationMatrix.cpp
         Source/Expansion/MultisampleEngine.cpp
+        Source/Expansion/SampleAnalysis.cpp
+        Source/Expansion/InstrumentFileIO.cpp
         tests/test_sampler_expansion.cpp
     )
     add_test(NAME sampler_expansion_tests COMMAND sampler_expansion_tests)

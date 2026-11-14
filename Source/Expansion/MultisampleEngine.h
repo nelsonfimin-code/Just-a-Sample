@@ -22,7 +22,17 @@ public:
  void render(float* left,float* right,std::size_t samples,double outputRate) noexcept;
  std::size_t activeVoices()const noexcept;
 private:
- struct Voice { const ZoneAudio* audio=nullptr;std::uint8_t channel=1,note=0;double position=0,step=1;float gain=1,zoneGainDb=0,pan=0,velocity=0,keyTrack=0,pressure=0,slide=0,filterL=0,filterR=0,releaseGain=1,releaseStep=0,attackGain=1,attackStep=0;Lfo lfo;bool active=false,releasing=false,keyDown=true; };
+ struct Voice {
+  const ZoneAudio* audio=nullptr;
+  std::uint8_t channel=1,note=0;
+  double position=0,step=1,sampleStart=0,sampleEnd=0,loopStart=0,loopEnd=0;
+  std::uint32_t loopCrossfadeFrames=0;
+  ZoneLoopMode loopMode=ZoneLoopMode::Off;
+  float direction=1.0f,gain=1,zoneGainDb=0,pan=0,velocity=0,keyTrack=0,pressure=0,slide=0;
+  float filterL=0,filterR=0,releaseGain=1,releaseStep=0,attackGain=1,attackStep=0;
+  Lfo lfo;
+  bool active=false,releasing=false,keyDown=true,sustainHeld=false;
+ };
  Voice* allocateVoice()noexcept;
  void noteOn(std::uint8_t,std::uint8_t,std::uint8_t)noexcept;
  void noteOff(std::uint8_t,std::uint8_t)noexcept;

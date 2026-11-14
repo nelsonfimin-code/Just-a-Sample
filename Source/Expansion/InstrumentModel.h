@@ -6,7 +6,17 @@
 #include <vector>
 namespace sampler {
 struct SampleReference { std::string id,path; double sampleRate=44100.0; std::uint32_t channels=0; std::uint64_t frames=0; };
-struct SampleZone { std::string id; SampleReference sample; std::uint8_t keyLow=0,keyHigh=127,velocityLow=1,velocityHigh=127,rootKey=60; float gainDb=0.0f,pan=0.0f; std::uint8_t roundRobinGroup=0,keyFadeIn=0,keyFadeOut=0,velocityFadeIn=0,velocityFadeOut=0; };
+enum class ZoneLoopMode : std::uint8_t { Off, Forward, PingPong };
+struct SampleZone {
+ std::string id;
+ SampleReference sample;
+ std::uint8_t keyLow=0,keyHigh=127,velocityLow=1,velocityHigh=127,rootKey=60;
+ float gainDb=0.0f,pan=0.0f;
+ std::uint8_t roundRobinGroup=0,keyFadeIn=0,keyFadeOut=0,velocityFadeIn=0,velocityFadeOut=0;
+ std::uint64_t sampleStart=0,sampleEnd=0,loopStart=0,loopEnd=0;
+ std::uint32_t loopCrossfadeFrames=0;
+ ZoneLoopMode loopMode=ZoneLoopMode::Off;
+};
 struct ZoneMatch { const SampleZone* zone=nullptr; float keyGain=1.0f,velocityGain=1.0f; };
 class ZoneSelection {
 public:
