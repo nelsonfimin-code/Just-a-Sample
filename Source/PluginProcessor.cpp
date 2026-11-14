@@ -11,6 +11,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "PluginParameters.h"
+#include "Expansion/InstrumentFileIO.h"
 #include <climits>
 #include <cstring>
 #include "Sampler/CustomSynthesizer.h"
@@ -46,6 +47,10 @@ JustaSampleAudioProcessor::JustaSampleAudioProcessor()
 
 JustaSampleAudioProcessor::~JustaSampleAudioProcessor()
 {
+    asyncLifetime->generation.fetch_add(1, std::memory_order_acq_rel);
+    asyncLifetime->alive.store(false, std::memory_order_release);
+    instrumentLoadPool.removeAllJobs(true, INT_MAX);
+
     for (int i = synth.getNumVoices() - 1; i >= 0; i--)
         synth.removeVoiceWithoutDeleting(i);
 
@@ -183,7 +188,7 @@ void JustaSampleAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 
     if (lock.isLocked())
     {
-        if (multiSampleMode)
+        if (multiSampleMode.load(std::memory_order_acquire))
         {
             multisampleEngine.setVoiceLimit(std::size_t(juce::jlimit(1, PluginParameters::MAX_VOICES, int(p(PluginParameters::NUM_VOICES)))));
             int renderedTo = 0;
@@ -353,7 +358,7 @@ void JustaSampleAudioProcessor::setStateInformation(const void* data, int sizeIn
                 restoringInstrumentState = restoredInstrument.deserialize(bytes) && loadInstrument(restoredInstrument);
             }
         }
-        else if (multiSampleMode)
+        else if (multiSampleMode.load(std::memory_order_acquire))
             clearInstrument();
         const auto finishInstrumentRestore = [this]
         {
@@ -468,10 +473,11 @@ void JustaSampleAudioProcessor::loadSample(juce::AudioBuffer<float>& sample, int
     haltVoices();
     if (!restoringInstrumentState)
     {
+        asyncLifetime->generation.fetch_add(1, std::memory_order_acq_rel);
         multisampleEngine.reset();
         instrumentSamples.clear();
         instrumentModel.clear();
-        multiSampleMode = false;
+        multiSampleMode.store(false, std::memory_order_release);
     }
 
     sampleBuffer = std::move(sample);
@@ -505,6 +511,14 @@ void JustaSampleAudioProcessor::loadSample(juce::AudioBuffer<float>& sample, int
 
 bool JustaSampleAudioProcessor::loadInstrument(const sampler::InstrumentModel& model, juce::String* error)
 {
+    asyncLifetime->generation.fetch_add(1, std::memory_order_acq_rel);
+    return loadInstrumentInternal(model, error, 0);
+}
+
+bool JustaSampleAudioProcessor::loadInstrumentInternal(const sampler::InstrumentModel& model,
+                                                        juce::String* error,
+                                                        std::uint64_t expectedGeneration)
+{
     auto fail = [error](const juce::String& message) { if (error) *error = message; return false; };
     if (model.size() == 0 || model.size() > sampler::MultisampleEngine::maxZones)
         return fail("Instrument must contain between 1 and 128 zones.");
@@ -513,21 +527,27 @@ bool JustaSampleAudioProcessor::loadInstrument(const sampler::InstrumentModel& m
 
     std::vector<InstrumentSample> loaded;
     loaded.reserve(model.size());
-    for (const auto& zone : model.zones())
     {
-        const juce::File file{ juce::String(zone.sample.path) };
-        std::unique_ptr<juce::AudioFormatReader> reader{ formatManager.createReaderFor(file) };
-        if (!reader || reader->lengthInSamples <= 0 || reader->lengthInSamples > INT_MAX)
-            return fail("Could not read sample file: " + file.getFileName());
-        InstrumentSample sample;
-        sample.sampleRate = reader->sampleRate;
-        sample.buffer.setSize(int(reader->numChannels), int(reader->lengthInSamples));
-        if (!reader->read(&sample.buffer, 0, int(reader->lengthInSamples), 0, true, true))
-            return fail("Failed while decoding sample: " + file.getFileName());
-        loaded.push_back(std::move(sample));
+        juce::ScopedLock formatLock(formatManagerLock);
+        for (const auto& zone : model.zones())
+        {
+            const juce::File file{ juce::String(zone.sample.path) };
+            std::unique_ptr<juce::AudioFormatReader> reader{ formatManager.createReaderFor(file) };
+            if (!reader || reader->lengthInSamples <= 0 || reader->lengthInSamples > INT_MAX)
+                return fail("Could not read sample file: " + file.getFileName());
+            InstrumentSample sample;
+            sample.sampleRate = reader->sampleRate;
+            sample.buffer.setSize(int(reader->numChannels), int(reader->lengthInSamples));
+            if (!reader->read(&sample.buffer, 0, int(reader->lengthInSamples), 0, true, true))
+                return fail("Failed while decoding sample: " + file.getFileName());
+            loaded.push_back(std::move(sample));
+        }
     }
 
     juce::ScopedLock lock(voiceLock);
+    if (expectedGeneration != 0
+        && expectedGeneration != asyncLifetime->generation.load(std::memory_order_acquire))
+        return fail("Instrument loading was cancelled.");
     juce::ScopedNoDenormals noDenormals;
     sampler::InstrumentModel candidate = model;
     std::vector<sampler::ZoneAudio> zoneAudio;
@@ -545,13 +565,74 @@ bool JustaSampleAudioProcessor::loadInstrument(const sampler::InstrumentModel& m
     }
     if (!multisampleEngine.setInstrument(candidate, zoneAudio.data(), zoneAudio.size()))
         return fail("The instrument sample map could not be prepared.");
-    multisampleEngine.setVoiceLimit(std::size_t(juce::jlimit(1, PluginParameters::MAX_VOICES, int(p(PluginParameters::NUM_VOICES)))));
+    auto* voiceParameter = apvts.getRawParameterValue(PluginParameters::NUM_VOICES);
+    const auto voiceCount = voiceParameter != nullptr ? int(voiceParameter->load()) : 88;
+    multisampleEngine.setVoiceLimit(std::size_t(juce::jlimit(1, PluginParameters::MAX_VOICES, voiceCount)));
     haltVoices();
     instrumentModel = std::move(candidate);
     instrumentSamples = std::move(loaded);
     multisampleEngine.setOutputSampleRate(getSampleRate());
-    multiSampleMode = true;
+    multiSampleMode.store(true, std::memory_order_release);
     return true;
+}
+
+void JustaSampleAudioProcessor::loadInstrumentFileAsync(
+    const juce::File& presetFile,
+    const juce::StringArray& searchRoots,
+    std::function<void(bool, const juce::String&)> callback)
+{
+    const auto generation = asyncLifetime->generation.fetch_add(1, std::memory_order_acq_rel) + 1;
+    const auto weakLifetime = std::weak_ptr<AsyncLifetime>(asyncLifetime);
+    const auto presetPath = presetFile.getFullPathName();
+    instrumentLoadPool.addJob([this, generation, weakLifetime, presetPath, searchRoots,
+                               callback = std::move(callback)]() mutable
+    {
+        if (generation != asyncLifetime->generation.load(std::memory_order_acquire))
+            return;
+
+        sampler::InstrumentModel source;
+        sampler::InstrumentModel resolved;
+        sampler::RelinkReport relinkReport;
+        std::string error;
+        bool loaded = sampler::loadInstrumentFile(presetPath.toStdString(), source, &error);
+
+        if (loaded && generation == asyncLifetime->generation.load(std::memory_order_acquire))
+        {
+            std::vector<std::string> roots;
+            roots.reserve(std::size_t(searchRoots.size()));
+            for (const auto& root : searchRoots)
+                roots.push_back(root.toStdString());
+
+            loaded = sampler::relinkMissingSamples(source, roots, resolved, relinkReport, &error);
+            if (loaded && generation == asyncLifetime->generation.load(std::memory_order_acquire))
+            {
+                juce::String loadError;
+                loaded = loadInstrumentInternal(resolved, &loadError, generation);
+                if (!loaded)
+                    error = loadError.toStdString();
+            }
+        }
+
+        if (generation != asyncLifetime->generation.load(std::memory_order_acquire))
+            return;
+
+        const juce::String message(error);
+        juce::MessageManager::callAsync([weakLifetime, generation, callback = std::move(callback),
+                                         loaded, message]() mutable
+        {
+            const auto lifetime = weakLifetime.lock();
+            if (lifetime == nullptr || !lifetime->alive.load(std::memory_order_acquire)
+                || lifetime->generation.load(std::memory_order_acquire) != generation)
+                return;
+            if (callback)
+                callback(loaded, message);
+        });
+    });
+}
+
+void JustaSampleAudioProcessor::cancelInstrumentLoad() noexcept
+{
+    asyncLifetime->generation.fetch_add(1, std::memory_order_acq_rel);
 }
 
 void JustaSampleAudioProcessor::setModulationMatrix(const sampler::ModulationMatrix& matrix)
@@ -574,6 +655,7 @@ void JustaSampleAudioProcessor::configureModulationLfo(float rateHz, sampler::Lf
 
 void JustaSampleAudioProcessor::clearInstrument()
 {
+    asyncLifetime->generation.fetch_add(1, std::memory_order_acq_rel);
     juce::ScopedLock lock(voiceLock);
     multisampleEngine.reset();
     instrumentSamples.clear();
@@ -584,7 +666,11 @@ void JustaSampleAudioProcessor::clearInstrument()
 void JustaSampleAudioProcessor::loadSampleFromPath(const juce::String& path, bool resetParameters, const juce::String& expectedHash, bool continueWithWrongHash, const std::function<void(bool)>& callback)
 {
     const juce::File file{ path };
-    std::unique_ptr<juce::AudioFormatReader> formatReader{ formatManager.createReaderFor(file) };
+    std::unique_ptr<juce::AudioFormatReader> formatReader;
+    {
+        juce::ScopedLock formatLock(formatManagerLock);
+        formatReader.reset(formatManager.createReaderFor(file));
+    }
 
     if (!formatReader || !formatReader->lengthInSamples)
         return callback(false);

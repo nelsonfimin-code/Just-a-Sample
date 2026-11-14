@@ -25,9 +25,10 @@ Cross-platform sampler instrument for macOS and Windows with AU, VST3 and standa
 - Offline transient analysis service computes multi-channel RMS envelopes and bounded slice markers with adjustable sensitivity, window size, minimum spacing, and maximum marker count.
 - Transient-to-slice region generation creates one-key sample zones with exclusive sample boundaries, velocity ranges, configurable key ranges, minimum slice length, and a 128-zone cap. Generated slices can be serialized in the existing JASZ instrument format and loaded by the multisample engine.
 - Offline .jasz preset file API supports bounded, atomic save/load. Missing-sample relinking searches user-supplied folders by exact filename and refuses ambiguous matches; relinking is transactional and never guesses between duplicates.
+- Processor exposes background .jasz loading with sample decoding off the message/audio threads, generation-based cancellation/supersession, message-thread completion callbacks, and processor-lifetime-safe shutdown.
 
 ## Next engineering gates
-1. Add safe background instrument loading and connect the .jasz import/relink APIs to the processor without blocking the audio or message thread.
+1. Connect the background .jasz loading/cancellation API to the future instrument browser and add progress/error presentation.
 2. Add slice auditioning and optional destructive/non-destructive region editing through the future editor workflow.
 3. Add the instrument browser, keyboard/velocity mapping editor, drag/drop, slicing view, and MPE/modulation controls. UI work remains deferred as requested.
 4. Add deeper per-zone effects routing and performance profiling with large instruments.

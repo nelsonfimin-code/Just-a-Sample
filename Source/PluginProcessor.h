@@ -57,11 +57,21 @@ public:
     void loadSampleFromPath(const juce::String& path, bool resetParameters = true, const juce::String& expectedHash = "", bool continueWithWrongHash = false,
         const std::function<void(bool loadedSuccessfully)>& callback = [](bool) -> void {});
     bool loadInstrument(const sampler::InstrumentModel& model, juce::String* error = nullptr);
+    // Loads a .jasz preset and its samples on a worker thread. Completion is posted to
+    // the message thread. A newer load, single-sample load, clear, or explicit cancel
+    // supersedes the request; superseded callbacks are intentionally not invoked.
+    void loadInstrumentFileAsync(const juce::File& presetFile,
+                                 const juce::StringArray& searchRoots,
+                                 std::function<void(bool, const juce::String&)> callback = {});
+    void cancelInstrumentLoad() noexcept;
     void clearInstrument();
     void setModulationMatrix(const sampler::ModulationMatrix& matrix);
     void setMPEZoneConfig(sampler::MPEZoneConfig config);
     void configureModulationLfo(float rateHz, sampler::Lfo::Shape shape);
-    bool isMultisampleInstrumentLoaded() const noexcept { return multiSampleMode; }
+    bool isMultisampleInstrumentLoaded() const noexcept
+    {
+        return multiSampleMode.load(std::memory_order_acquire);
+    }
 
     /** Open a file chooser */
     void openFileChooser(const juce::String& message, int flags, const std::function<void(const juce::FileChooser&)>& callback, bool wavOnly = false);
@@ -172,8 +182,18 @@ private:
     sampler::InstrumentModel instrumentModel;
     sampler::MultisampleEngine multisampleEngine;
     std::vector<InstrumentSample> instrumentSamples;
-    bool multiSampleMode{ false };
+    std::atomic<bool> multiSampleMode{ false };
     bool restoringInstrumentState{ false };
+    bool loadInstrumentInternal(const sampler::InstrumentModel& model, juce::String* error,
+                                std::uint64_t expectedGeneration);
+    struct AsyncLifetime
+    {
+        std::atomic<bool> alive{ true };
+        std::atomic<std::uint64_t> generation{ 0 };
+    };
+    std::shared_ptr<AsyncLifetime> asyncLifetime{ std::make_shared<AsyncLifetime>() };
+    juce::ThreadPool instrumentLoadPool{ 1 };
+    juce::CriticalSection formatManagerLock;
     juce::AudioBuffer<float> sampleBuffer;
     float bufferSampleRate{ 0.f };
     SamplerParameters samplerSound;
