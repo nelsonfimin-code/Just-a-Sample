@@ -399,4 +399,13 @@ if (BUILD_TESTING)
         "${leaf_SOURCE_DIR}/leaf/Inc")
     add_test(NAME sampler_processor_tests
         COMMAND sampler_processor_tests "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/integration-sine.wav")
+
+    # These tests intentionally use assert() as executable checks; keep them active in Release CI.
+    if (MSVC)
+        target_compile_options(sampler_expansion_tests PRIVATE /UNDEBUG)
+        target_compile_options(sampler_processor_tests PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(sampler_expansion_tests PRIVATE -UNDEBUG)
+        target_compile_options(sampler_processor_tests PRIVATE -UNDEBUG)
+    endif()
 endif()

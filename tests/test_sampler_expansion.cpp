@@ -11,13 +11,15 @@
 #include <fstream>
 #include <cstdlib>
 #include <cstdio>
-#include <sys/stat.h>
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include <direct.h>
-#define JAS_REMOVE_DIRECTORY _rmdir
 #else
+#include <sys/stat.h>
 #include <unistd.h>
-#define JAS_REMOVE_DIRECTORY rmdir
 #endif
 #include <cmath>
 #include <iostream>
@@ -28,6 +30,42 @@ using namespace sampler;
 
 namespace
 {
+std::string makeTemporaryDirectory()
+{
+#if defined(_WIN32)
+    char temporaryPath[MAX_PATH] {};
+    char temporaryName[MAX_PATH] {};
+    if (GetTempPathA(MAX_PATH, temporaryPath) == 0
+        || GetTempFileNameA(temporaryPath, "jas", 0, temporaryName) == 0)
+        return {};
+    if (!DeleteFileA(temporaryName) || !CreateDirectoryA(temporaryName, nullptr))
+        return {};
+    return temporaryName;
+#else
+    char temporaryPath[] = "/tmp/jasz-io-test-XXXXXX";
+    const auto* created = mkdtemp(temporaryPath);
+    return created != nullptr ? std::string(created) : std::string{};
+#endif
+}
+
+bool createTestDirectory(const std::string& path)
+{
+#if defined(_WIN32)
+    return _mkdir(path.c_str()) == 0;
+#else
+    return mkdir(path.c_str(), 0700) == 0;
+#endif
+}
+
+void removeTestDirectory(const std::string& path)
+{
+#if defined(_WIN32)
+    _rmdir(path.c_str());
+#else
+    rmdir(path.c_str());
+#endif
+}
+
 SampleZone makeZone(const std::string& id, int keyLow, int keyHigh,
                     int velocityLow, int velocityHigh, int roundRobin = 0)
 {
@@ -248,16 +286,14 @@ void testSampleAnalysis()
 
 void testInstrumentFileIO()
 {
-    char temporaryRoot[] = "/tmp/jasz-io-test-XXXXXX";
-    const auto* rootValue = mkdtemp(temporaryRoot);
-    assert(rootValue != nullptr);
-    const std::string root(rootValue);
+    const std::string root = makeTemporaryDirectory();
+    assert(!root.empty());
     const auto originalFolder = root + "/original";
     const auto searchFolder = root + "/search";
     const auto duplicateFolder = root + "/duplicate";
-    assert(mkdir(originalFolder.c_str(), 0700) == 0);
-    assert(mkdir(searchFolder.c_str(), 0700) == 0);
-    assert(mkdir(duplicateFolder.c_str(), 0700) == 0);
+    assert(createTestDirectory(originalFolder));
+    assert(createTestDirectory(searchFolder));
+    assert(createTestDirectory(duplicateFolder));
 
     const auto originalSample = originalFolder + "/kick.wav";
     {
@@ -368,10 +404,10 @@ void testInstrumentFileIO()
     std::remove(corruptPreset.c_str());
     std::remove(movedSample.c_str());
     std::remove(duplicateSample.c_str());
-    JAS_REMOVE_DIRECTORY(originalFolder.c_str());
-    JAS_REMOVE_DIRECTORY(searchFolder.c_str());
-    JAS_REMOVE_DIRECTORY(duplicateFolder.c_str());
-    JAS_REMOVE_DIRECTORY(root.c_str());
+    removeTestDirectory(originalFolder);
+    removeTestDirectory(searchFolder);
+    removeTestDirectory(duplicateFolder);
+    removeTestDirectory(root);
 }
 
 void testPlaybackEngine()
