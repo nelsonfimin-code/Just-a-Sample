@@ -30,7 +30,7 @@ Cross-platform sampler instrument for macOS and Windows with AU, VST3 and standa
 
 ## Next engineering gates
 1. Run the installed AU/VST3 in a separate real Logic project and verify multisample loading, MIDI expression, state round-trip, and long-session stability. Do not disturb the user's open Logic project.
-2. Research and propose a modern sampler interface direction using current plugin references; preserve the existing fast workflow and keep advanced mapping/MPE controls progressively disclosed. No UI changes until the design direction is reviewed.
+2. Implement the approved modern sampler interface direction in `docs-ui-modernization-research.md`; preserve the existing fast workflow and keep advanced mapping/MPE controls progressively disclosed. The research is complete; UI code remains unchanged until the implementation spike is validated.
 3. Connect the background .jasz loading/cancellation API to the future instrument browser and add progress/error presentation.
 4. Add slice auditioning and optional destructive/non-destructive region editing through the future editor workflow.
 5. Extend the per-zone effects stage with resonant filter models and optional time-based sends, then profile large instruments.
