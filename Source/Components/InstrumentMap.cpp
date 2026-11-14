@@ -137,9 +137,16 @@ InstrumentMapComponent::InstrumentMapComponent(JustaSampleAudioProcessor& p) : p
     addLabel(filterLabel, "FILTER"); addLabel(cutoffLabel, "CUTOFF Hz");
     addLabel(resonanceLabel, "RESONANCE"); addLabel(driveLabel, "DRIVE dB");
     addLabel(reverbSendLabel, "REVERB SEND"); addLabel(delaySendLabel, "DELAY SEND");
+    addLabel(rrLabel, "ROUND ROBIN GROUP"); addLabel(keyFadeInLabel, "KEY FADE IN"); addLabel(keyFadeOutLabel, "KEY FADE OUT");
+    addLabel(velocityFadeInLabel, "VEL FADE IN"); addLabel(velocityFadeOutLabel, "VEL FADE OUT");
+    addLabel(sampleStartLabel, "SAMPLE START (FRAMES)"); addLabel(sampleEndLabel, "SAMPLE END (FRAMES)");
+    addLabel(loopStartLabel, "LOOP START (FRAMES)"); addLabel(loopEndLabel, "LOOP END (FRAMES)");
+    addLabel(loopModeLabel, "LOOP MODE"); addLabel(loopCrossfadeLabel, "LOOP CROSSFADE (FRAMES)");
 
     for (auto* field : { &keyLow, &keyHigh, &velocityLow, &velocityHigh, &rootKey,
-                         &gainDb, &pan, &cutoffHz, &resonance, &driveDb, &reverbSend, &delaySend })
+                         &gainDb, &pan, &cutoffHz, &resonance, &driveDb, &reverbSend, &delaySend,
+                         &roundRobin, &keyFadeIn, &keyFadeOut, &velocityFadeIn, &velocityFadeOut,
+                         &sampleStart, &sampleEnd, &loopStart, &loopEnd, &loopCrossfade })
     {
         styleField(*field);
         addAndMakeVisible(field);
@@ -150,6 +157,11 @@ InstrumentMapComponent::InstrumentMapComponent(JustaSampleAudioProcessor& p) : p
     filterMode.setColour(juce::ComboBox::textColourId, textMain);
     filterMode.setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
     addAndMakeVisible(filterMode);
+    loopMode.addItem("Off", 1); loopMode.addItem("Forward", 2); loopMode.addItem("Ping-pong", 3);
+    loopMode.setColour(juce::ComboBox::backgroundColourId, panelRaised);
+    loopMode.setColour(juce::ComboBox::textColourId, textMain);
+    loopMode.setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+    addAndMakeVisible(loopMode);
 
     styleButton(loadButton); styleButton(saveButton); styleButton(addButton);
     styleButton(sliceButton); styleButton(removeButton); styleButton(applyButton, true);
@@ -227,30 +239,35 @@ void InstrumentMapComponent::resized()
     area.removeFromLeft(18);
 
     auto inspector = area;
-    keyMap.setBounds(inspector.removeFromTop(92));
-    inspector.removeFromTop(10);
+    keyMap.setBounds(inspector.removeFromTop(72));
+    inspector.removeFromTop(8);
     inspectorLabel.setBounds(inspector.removeFromTop(26));
-    inspector.removeFromTop(10);
-    const auto colGap = 12;
-    const auto rowH = 44;
+    inspector.removeFromTop(8);
+    const auto colGap = 10;
+    const auto rowH = 36;
     const auto fieldW = juce::jmax(54, (inspector.getWidth() - colGap * 3) / 4);
     auto place = [&](juce::Label& label, juce::Component& field, int column, int row, int span = 1)
     {
         const auto x = inspector.getX() + column * (fieldW + colGap);
-        const auto y = inspector.getY() + row * rowH;
+        const auto y = inspector.getY() + (row + 1) * rowH;
         const auto width = fieldW * span + colGap * (span - 1);
-        label.setBounds(x, y, width, 16);
-        field.setBounds(x, y + 19, width, 27);
+        label.setBounds(x, y, width, 14);
+        field.setBounds(x, y + 15, width, 21);
     };
-    sampleLabel.setBounds(inspector.getX(), inspector.getY(), inspector.getWidth(), 16);
-    sampleValueLabel.setBounds(inspector.getX(), inspector.getY() + 19, inspector.getWidth(), 27);
-    place(keyLowLabel, keyLow, 0, 1); place(keyHighLabel, keyHigh, 1, 1);
-    place(velocityLowLabel, velocityLow, 2, 1); place(velocityHighLabel, velocityHigh, 3, 1);
-    place(rootLabel, rootKey, 0, 2); place(gainLabel, gainDb, 1, 2);
-    place(panLabel, pan, 2, 2); place(filterLabel, filterMode, 3, 2);
-    place(cutoffLabel, cutoffHz, 0, 3); place(resonanceLabel, resonance, 1, 3);
-    place(driveLabel, driveDb, 2, 3); place(reverbSendLabel, reverbSend, 3, 3);
-    place(delaySendLabel, delaySend, 0, 4);
+    sampleLabel.setBounds(inspector.getX(), inspector.getY(), inspector.getWidth(), 14);
+    sampleValueLabel.setBounds(inspector.getX(), inspector.getY() + 15, inspector.getWidth(), 21);
+    place(keyLowLabel, keyLow, 0, 0); place(keyHighLabel, keyHigh, 1, 0);
+    place(velocityLowLabel, velocityLow, 2, 0); place(velocityHighLabel, velocityHigh, 3, 0);
+    place(rootLabel, rootKey, 0, 1); place(gainLabel, gainDb, 1, 1);
+    place(panLabel, pan, 2, 1); place(filterLabel, filterMode, 3, 1);
+    place(cutoffLabel, cutoffHz, 0, 2); place(resonanceLabel, resonance, 1, 2);
+    place(driveLabel, driveDb, 2, 2); place(reverbSendLabel, reverbSend, 3, 2);
+    place(delaySendLabel, delaySend, 0, 3); place(rrLabel, roundRobin, 1, 3);
+    place(keyFadeInLabel, keyFadeIn, 2, 3); place(keyFadeOutLabel, keyFadeOut, 3, 3);
+    place(velocityFadeInLabel, velocityFadeIn, 0, 4); place(velocityFadeOutLabel, velocityFadeOut, 1, 4);
+    place(sampleStartLabel, sampleStart, 2, 4); place(sampleEndLabel, sampleEnd, 3, 4);
+    place(loopStartLabel, loopStart, 0, 5); place(loopEndLabel, loopEnd, 1, 5);
+    place(loopModeLabel, loopMode, 2, 5); place(loopCrossfadeLabel, loopCrossfade, 3, 5);
 }
 
 int InstrumentMapComponent::getNumRows() { return int(model.size()); }
@@ -314,8 +331,11 @@ void InstrumentMapComponent::showSelectedZone()
     keyMap.repaint();
     const auto it = std::find_if(model.zones().begin(), model.zones().end(), [this](const auto& z) { return z.id == selectedZoneId.toStdString(); });
     const auto found = it != model.zones().end();
-    for (auto* field : { &keyLow, &keyHigh, &velocityLow, &velocityHigh, &rootKey, &gainDb, &pan, &cutoffHz, &resonance, &driveDb, &reverbSend, &delaySend })
+    for (auto* field : { &keyLow, &keyHigh, &velocityLow, &velocityHigh, &rootKey, &gainDb, &pan, &cutoffHz, &resonance, &driveDb, &reverbSend, &delaySend,
+                         &roundRobin, &keyFadeIn, &keyFadeOut, &velocityFadeIn, &velocityFadeOut,
+                         &sampleStart, &sampleEnd, &loopStart, &loopEnd, &loopCrossfade })
         field->setEnabled(found);
+    loopMode.setEnabled(found);
     filterMode.setEnabled(found);
     removeButton.setEnabled(found);
     sliceButton.setEnabled(found);
@@ -331,13 +351,23 @@ void InstrumentMapComponent::showSelectedZone()
         resonance.setText(juce::String(z.filterResonance, 2), false); driveDb.setText(juce::String(z.driveDb, 1), false);
         reverbSend.setText(juce::String(z.reverbSend, 2), false);
         delaySend.setText(juce::String(z.delaySend, 2), false);
+        roundRobin.setText(juce::String(z.roundRobinGroup), false);
+        keyFadeIn.setText(juce::String(z.keyFadeIn), false); keyFadeOut.setText(juce::String(z.keyFadeOut), false);
+        velocityFadeIn.setText(juce::String(z.velocityFadeIn), false); velocityFadeOut.setText(juce::String(z.velocityFadeOut), false);
+        sampleStart.setText(juce::String(z.sampleStart), false);
+        sampleEnd.setText(juce::String(z.sampleEnd == 0 ? z.sample.frames : z.sampleEnd), false);
+        loopStart.setText(juce::String(z.loopStart), false); loopEnd.setText(juce::String(z.loopEnd), false);
+        loopCrossfade.setText(juce::String(z.loopCrossfadeFrames), false);
+        loopMode.setSelectedId(int(z.loopMode) + 1, juce::dontSendNotification);
         filterMode.setSelectedId(int(z.filterMode) + 1, juce::dontSendNotification);
     }
     else
     {
         sampleValueLabel.setText("No zone selected", juce::dontSendNotification);
-        for (auto* field : { &keyLow, &keyHigh, &velocityLow, &velocityHigh, &rootKey, &gainDb, &pan, &cutoffHz, &resonance, &driveDb, &reverbSend, &delaySend }) field->clear();
-        filterMode.setSelectedId(1, juce::dontSendNotification);
+        for (auto* field : { &keyLow, &keyHigh, &velocityLow, &velocityHigh, &rootKey, &gainDb, &pan, &cutoffHz, &resonance, &driveDb, &reverbSend, &delaySend,
+                             &roundRobin, &keyFadeIn, &keyFadeOut, &velocityFadeIn, &velocityFadeOut,
+                             &sampleStart, &sampleEnd, &loopStart, &loopEnd, &loopCrossfade }) field->clear();
+        filterMode.setSelectedId(1, juce::dontSendNotification); loopMode.setSelectedId(1, juce::dontSendNotification);
     }
     updatingFields = false;
 }
@@ -355,6 +385,15 @@ void InstrumentMapComponent::applyZone()
     if (it == model.zones().end()) return;
     auto zone = *it;
     auto parse = [](const juce::TextEditor& field, double fallback) { return field.getText().trim().isEmpty() ? fallback : field.getText().getDoubleValue(); };
+    auto parseInteger = [&](const juce::TextEditor& field, int fallback, int minimum, int maximum)
+    {
+        return juce::jlimit(minimum, maximum, int(juce::jlimit(double(minimum), double(maximum), parse(field, fallback))));
+    };
+    auto parseFrame = [&](const juce::TextEditor& field, std::uint64_t fallback)
+    {
+        const auto value = field.getText().trim().isEmpty() ? double(fallback) : double(field.getText().getLargeIntValue());
+        return std::uint64_t(juce::jlimit(0.0, double(INT_MAX), value));
+    };
     const auto low = int(parse(keyLow, zone.keyLow)), high = int(parse(keyHigh, zone.keyHigh));
     const auto vLow = int(parse(velocityLow, zone.velocityLow)), vHigh = int(parse(velocityHigh, zone.velocityHigh));
     const auto root = int(parse(rootKey, zone.rootKey));
@@ -369,6 +408,17 @@ void InstrumentMapComponent::applyZone()
     zone.driveDb = float(parse(driveDb, zone.driveDb));
     zone.reverbSend = float(parse(reverbSend, zone.reverbSend));
     zone.delaySend = float(parse(delaySend, zone.delaySend));
+    zone.roundRobinGroup = std::uint8_t(parseInteger(roundRobin, zone.roundRobinGroup, 0, 255));
+    zone.keyFadeIn = std::uint8_t(parseInteger(keyFadeIn, zone.keyFadeIn, 0, 127));
+    zone.keyFadeOut = std::uint8_t(parseInteger(keyFadeOut, zone.keyFadeOut, 0, 127));
+    zone.velocityFadeIn = std::uint8_t(parseInteger(velocityFadeIn, zone.velocityFadeIn, 0, 127));
+    zone.velocityFadeOut = std::uint8_t(parseInteger(velocityFadeOut, zone.velocityFadeOut, 0, 127));
+    zone.sampleStart = parseFrame(sampleStart, zone.sampleStart);
+    zone.sampleEnd = parseFrame(sampleEnd, zone.sampleEnd == 0 ? zone.sample.frames : zone.sampleEnd);
+    zone.loopStart = parseFrame(loopStart, zone.loopStart);
+    zone.loopEnd = parseFrame(loopEnd, zone.loopEnd);
+    zone.loopCrossfadeFrames = std::uint32_t(parseInteger(loopCrossfade, int(zone.loopCrossfadeFrames), 0, INT_MAX));
+    zone.loopMode = sampler::ZoneLoopMode(juce::jlimit(0, 2, loopMode.getSelectedId() - 1));
     juce::String error;
     if (!processor.updateInstrumentZone(zone, &error)) { setStatus("Could not apply zone: " + error); return; }
     refresh(); setStatus("Zone updated");

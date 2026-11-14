@@ -94,3 +94,10 @@ A compact header should provide preset/sample name, load/save, undo/redo, voice 
 The native JUCE workspace shell is now implemented with PLAY, MAP, EDIT, MOD and FX navigation. MAP includes sample import, keyboard zone lanes, selected-zone editing, per-zone filter/saturation/time-effect controls, transient slicing, and `.jasz` load/save. MOD includes MPE configuration, LFO controls and modulation route editing. The UI uses translucent graphite surfaces, thin light borders and restrained amber active states. Existing parameter attachments and the original sample workflow are retained.
 
 JIVE was not integrated: the isolated JUCE 8 compatibility spike did not finish within the available local build window, so compatibility was not established. Native JUCE remains the lower-risk implementation for the existing plug-in. The Windows CI and separate Logic-project host checks remain outstanding.
+
+
+## Implementation update — 2026-11-14
+
+The production editor remains native JUCE. The new workspace shell is now implemented with PLAY, MAP, EDIT, MOD and FX tabs. MAP has the keyboard/zone view and zone inspector; EDIT isolates waveform editing; MOD exposes MPE and modulation routes; FX opens the existing effects chain. The zone inspector now includes round-robin, fades, sample boundaries, loop mode and crossfade in addition to key/velocity mapping and zone effects.
+
+The JIVE spike was not adopted: its isolated JUCE 8.0.12 build did not complete within the local test window, so compatibility is not claimed. Avoid adding a UI framework dependency until its compatibility and maintenance are proven. Remaining UI work is host-side usability review, not a rewrite of the chosen architecture.

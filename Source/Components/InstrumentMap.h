@@ -49,12 +49,16 @@ private:
     juce::String statusMessage { "No multisample instrument loaded" };
 
     juce::Label titleLabel, countLabel, inspectorLabel, sampleLabel, sampleValueLabel, keyLowLabel, keyHighLabel, velocityLowLabel, velocityHighLabel,
-                rootLabel, gainLabel, panLabel, filterLabel, cutoffLabel, resonanceLabel, driveLabel, reverbSendLabel, delaySendLabel;
+                rootLabel, gainLabel, panLabel, filterLabel, cutoffLabel, resonanceLabel, driveLabel, reverbSendLabel, delaySendLabel,
+                rrLabel, keyFadeInLabel, keyFadeOutLabel, velocityFadeInLabel, velocityFadeOutLabel,
+                sampleStartLabel, sampleEndLabel, loopStartLabel, loopEndLabel, loopModeLabel, loopCrossfadeLabel;
     juce::ListBox zoneList;
     InstrumentKeyMap keyMap;
     juce::TextEditor keyLow, keyHigh, velocityLow, velocityHigh, rootKey, gainDb, pan,
-                     cutoffHz, resonance, driveDb, reverbSend, delaySend;
-    juce::ComboBox filterMode;
+                     cutoffHz, resonance, driveDb, reverbSend, delaySend,
+                     roundRobin, keyFadeIn, keyFadeOut, velocityFadeIn, velocityFadeOut,
+                     sampleStart, sampleEnd, loopStart, loopEnd, loopCrossfade;
+    juce::ComboBox filterMode, loopMode;
     juce::TextButton loadButton { "Load .jasz" }, saveButton { "Save .jasz" },
                      addButton { "+ Add samples" }, sliceButton { "Slice sample" }, removeButton { "Remove zone" },
                      applyButton { "Apply zone changes" };

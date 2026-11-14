@@ -587,23 +587,15 @@ void JustaSampleAudioProcessorEditor::setWorkspace(int workspace)
     for (int i = 0; i < int(workspaceTabs.size()); ++i)
         workspaceTabs[std::size_t(i)].setToggleState(i == activeWorkspace, juce::dontSendNotification);
 
-    const bool wasFocused = previousWorkspace == Map || previousWorkspace == Mod;
-    const bool isFocused = activeWorkspace == Map || activeWorkspace == Mod;
+    const bool wasFocused = previousWorkspace == Map || previousWorkspace == Edit || previousWorkspace == Mod;
+    const bool isFocused = activeWorkspace == Map || activeWorkspace == Edit || activeWorkspace == Mod;
     if (isFocused && !wasFocused)
     {
         savedWorkspaceVisibility.clear();
         for (int i = 0; i < getNumChildComponents(); ++i)
         {
             auto* child = getChildComponent(i);
-            if (child == &instrumentMap || child == &modulationPanel || child == &prompt || child == &audioDeviceSettings)
-                continue;
-            bool isTab = false;
-            for (auto& tab : workspaceTabs) if (child == &tab) { isTab = true; break; }
-            if (!isTab)
-            {
-                savedWorkspaceVisibility.emplace_back(child, child->isVisible());
-                child->setVisible(false);
-            }
+            savedWorkspaceVisibility.emplace_back(child, child->isVisible());
         }
     }
     else if (!isFocused && wasFocused)
@@ -611,6 +603,22 @@ void JustaSampleAudioProcessorEditor::setWorkspace(int workspace)
         for (const auto& entry : savedWorkspaceVisibility)
             if (entry.first != nullptr) entry.first->setVisible(entry.second);
         savedWorkspaceVisibility.clear();
+    }
+
+    if (isFocused)
+    {
+        for (int i = 0; i < getNumChildComponents(); ++i)
+        {
+            auto* child = getChildComponent(i);
+            if (child == &prompt || child == &audioDeviceSettings) continue;
+            bool isTab = false;
+            for (auto& tab : workspaceTabs) if (child == &tab) { isTab = true; break; }
+            const bool keep = isTab
+                || (activeWorkspace == Map && child == &instrumentMap)
+                || (activeWorkspace == Edit && (child == &sampleEditor || child == &sampleNavigator))
+                || (activeWorkspace == Mod && child == &modulationPanel);
+            child->setVisible(keep);
+        }
     }
 
     instrumentMap.setVisible(activeWorkspace == Map);
@@ -637,10 +645,17 @@ void JustaSampleAudioProcessorEditor::resized()
     const auto tabWidth = (navigation.getWidth() - tabGap * 4) / 5;
     for (int i = 0; i < int(workspaceTabs.size()); ++i)
         workspaceTabs[std::size_t(i)].setBounds(navigation.removeFromLeft(tabWidth));
-    if (activeWorkspace == Map || activeWorkspace == Mod)
+    if (activeWorkspace == Map || activeWorkspace == Mod || activeWorkspace == Edit)
     {
         if (activeWorkspace == Map) instrumentMap.setBounds(bounds.toNearestInt());
-        else modulationPanel.setBounds(bounds.toNearestInt());
+        else if (activeWorkspace == Mod) modulationPanel.setBounds(bounds.toNearestInt());
+        else
+        {
+            auto editBounds = bounds.toNearestInt().reduced(18, 14);
+            sampleNavigator.setBounds(editBounds.removeFromBottom(30));
+            editBounds.removeFromBottom(8);
+            sampleEditor.setBounds(editBounds);
+        }
         prompt.setBounds(bounds.toNearestInt());
         return;
     }

@@ -75,6 +75,18 @@ void MultisampleEngine::setVoiceLimit(std::size_t voices) noexcept
         voices_[i].active = false;
 }
 
+void MultisampleEngine::setModulationMatrix(const ModulationMatrix& matrix) noexcept
+{
+    modulation_ = matrix;
+    modulationUsesLfo_ = false;
+    for (std::size_t i = 0; i < modulation_.size(); ++i)
+        if (const auto* route = modulation_.route(i); route && route->enabled && route->source == ModSource::Lfo1)
+        {
+            modulationUsesLfo_ = true;
+            break;
+        }
+}
+
 void MultisampleEngine::setMPEZoneConfig(MPEZoneConfig config) noexcept
 {
     mpe_.configure(config);
@@ -150,6 +162,18 @@ void MultisampleEngine::noteOn(std::uint8_t channel, std::uint8_t note, std::uin
         voice->driveDb = match.zone->driveDb;
         voice->reverbSend = match.zone->reverbSend;
         voice->delaySend = match.zone->delaySend;
+        voice->driveLinear = std::pow(10.0f, voice->driveDb / 20.0f);
+        voice->driveNormalizer = std::tanh(voice->driveLinear);
+        voice->cachedGainDb = voice->zoneGainDb;
+        voice->cachedGainLinear = std::pow(10.0f, voice->zoneGainDb / 20.0f);
+        voice->cachedPan = voice->pan;
+        voice->cachedLeftPan = std::cos((voice->pan + 1.0f) * pi * 0.25f);
+        voice->cachedRightPan = std::sin((voice->pan + 1.0f) * pi * 0.25f);
+        voice->cachedPitchMod = 0.0f;
+        voice->cachedPitchRatio = 1.0f;
+        voice->cachedFilterCutoff = -1.0f;
+        voice->cachedFilterResonance = -1.0f;
+        voice->cachedFilterRate = 0.0;
         voice->pressure = std::max(expression.pressure, mpe_.perNotePressure(channel, note));
         voice->slide = expression.slide;
         voice->sampleStart = static_cast<double>(sampleStart);
@@ -355,28 +379,44 @@ void MultisampleEngine::render(float* left, float* right, std::size_t samples, d
                 break;
             }
 
-            const auto inputs = inputsFor(voice, voice.lfo.next(float(rate)));
-            const auto pitchMod = modulation_.evaluate(ModDestination::PitchSemitones, 0.0f,
-                                                        -96.0f, 96.0f, inputs);
-            const auto gainDb = modulation_.evaluate(ModDestination::GainDb, voice.zoneGainDb,
-                                                      -96.0f, 24.0f, inputs);
-            const auto pan = modulation_.evaluate(ModDestination::Pan, voice.pan, -1.0f, 1.0f, inputs);
-            const auto cutoffBase = voice.filterMode == ZoneFilterMode::Off
+            float pitchMod = 0.0f;
+            float gainDb = voice.zoneGainDb;
+            float pan = voice.pan;
+            float cutoff = voice.filterMode == ZoneFilterMode::Off
                 ? float(rate * 0.49) : voice.filterCutoffHz;
-            const auto cutoff = modulation_.evaluate(ModDestination::FilterCutoffHz, cutoffBase,
-                                                      20.0f, float(rate * 0.49), inputs);
+            if (modulation_.size() != 0)
+            {
+                const auto lfoValue = modulationUsesLfo_ ? voice.lfo.next(float(rate)) : 0.0f;
+                const auto inputs = inputsFor(voice, lfoValue);
+                pitchMod = modulation_.evaluate(ModDestination::PitchSemitones, 0.0f,
+                                                -96.0f, 96.0f, inputs);
+                gainDb = modulation_.evaluate(ModDestination::GainDb, voice.zoneGainDb,
+                                              -96.0f, 24.0f, inputs);
+                pan = modulation_.evaluate(ModDestination::Pan, voice.pan, -1.0f, 1.0f, inputs);
+                cutoff = modulation_.evaluate(ModDestination::FilterCutoffHz, cutoff,
+                                              20.0f, float(rate * 0.49), inputs);
+            }
             const auto filterEnabled = voice.filterMode != ZoneFilterMode::Off
                 || cutoff < float(rate * 0.48);
             const auto effectiveFilterMode = voice.filterMode == ZoneFilterMode::Off
                 ? (filterEnabled ? ZoneFilterMode::LowPass : ZoneFilterMode::Off)
                 : voice.filterMode;
             const auto safeCutoff = std::clamp(cutoff, 20.0f, float(rate * 0.45));
-            const auto g = std::tan(pi * safeCutoff / float(rate));
-            const auto q = 0.70710678f + voice.filterResonance * 11.29289322f;
-            const auto k = 1.0f / q;
-            const auto a1 = 1.0f / (1.0f + g * (g + k));
-            const auto a2 = g * a1;
-            const auto a3 = g * a2;
+            if (effectiveFilterMode != ZoneFilterMode::Off
+                && (std::abs(safeCutoff - voice.cachedFilterCutoff) > 0.1f
+                    || std::abs(voice.filterResonance - voice.cachedFilterResonance) > 0.001f
+                    || std::abs(rate - voice.cachedFilterRate) > 0.01))
+            {
+                const auto g = std::tan(pi * safeCutoff / float(rate));
+                const auto q = 0.70710678f + voice.filterResonance * 11.29289322f;
+                voice.filterK = 1.0f / q;
+                voice.filterA1 = 1.0f / (1.0f + g * (g + voice.filterK));
+                voice.filterA2 = g * voice.filterA1;
+                voice.filterA3 = g * voice.filterA2;
+                voice.cachedFilterCutoff = safeCutoff;
+                voice.cachedFilterResonance = voice.filterResonance;
+                voice.cachedFilterRate = rate;
+            }
 
             auto rawL = readInterpolated(audio.left, voice.position, voice.sampleEnd);
             auto rawR = readInterpolated(rightSamples, voice.position, voice.sampleEnd);
@@ -398,50 +438,59 @@ void MultisampleEngine::render(float* left, float* right, std::size_t samples, d
                 }
             }
 
-            const auto v3L = rawL - voice.bandL - k * voice.filterL;
-            const auto v1L = a1 * voice.filterL + a2 * v3L;
-            const auto v2L = voice.bandL + a2 * voice.filterL + a3 * v3L;
-            voice.filterL = 2.0f * v1L - voice.filterL;
-            voice.bandL = 2.0f * v2L - voice.bandL;
-            const auto v3R = rawR - voice.bandR - k * voice.filterR;
-            const auto v1R = a1 * voice.filterR + a2 * v3R;
-            const auto v2R = voice.bandR + a2 * voice.filterR + a3 * v3R;
-            voice.filterR = 2.0f * v1R - voice.filterR;
-            voice.bandR = 2.0f * v2R - voice.bandR;
             float filteredL = rawL;
             float filteredR = rawR;
-            switch (effectiveFilterMode)
+            if (effectiveFilterMode != ZoneFilterMode::Off)
             {
-                case ZoneFilterMode::Off: break;
-                case ZoneFilterMode::LowPass:
-                    filteredL = v2L;
-                    filteredR = v2R;
-                    break;
-                case ZoneFilterMode::HighPass:
-                    filteredL = rawL - k * v1L - v2L;
-                    filteredR = rawR - k * v1R - v2R;
-                    break;
-                case ZoneFilterMode::BandPass:
-                    filteredL = v1L;
-                    filteredR = v1R;
-                    break;
+                const auto v3L = rawL - voice.bandL - voice.filterK * voice.filterL;
+                const auto v1L = voice.filterA1 * voice.filterL + voice.filterA2 * v3L;
+                const auto v2L = voice.bandL + voice.filterA2 * voice.filterL + voice.filterA3 * v3L;
+                voice.filterL = 2.0f * v1L - voice.filterL;
+                voice.bandL = 2.0f * v2L - voice.bandL;
+                const auto v3R = rawR - voice.bandR - voice.filterK * voice.filterR;
+                const auto v1R = voice.filterA1 * voice.filterR + voice.filterA2 * v3R;
+                const auto v2R = voice.bandR + voice.filterA2 * voice.filterR + voice.filterA3 * v3R;
+                voice.filterR = 2.0f * v1R - voice.filterR;
+                voice.bandR = 2.0f * v2R - voice.bandR;
+                switch (effectiveFilterMode)
+                {
+                    case ZoneFilterMode::Off: break;
+                    case ZoneFilterMode::LowPass: filteredL = v2L; filteredR = v2R; break;
+                    case ZoneFilterMode::HighPass:
+                        filteredL = rawL - voice.filterK * v1L - v2L;
+                        filteredR = rawR - voice.filterK * v1R - v2R;
+                        break;
+                    case ZoneFilterMode::BandPass: filteredL = v1L; filteredR = v1R; break;
+                }
             }
             if (voice.driveDb > 0.001f)
             {
-                const auto drive = std::pow(10.0f, voice.driveDb / 20.0f);
-                const auto normalizer = std::tanh(drive);
-                filteredL = std::tanh(filteredL * drive) / normalizer;
-                filteredR = std::tanh(filteredR * drive) / normalizer;
+                filteredL = std::tanh(filteredL * voice.driveLinear) / voice.driveNormalizer;
+                filteredR = std::tanh(filteredR * voice.driveLinear) / voice.driveNormalizer;
             }
 
-            const auto leftGain = std::cos((pan + 1.0f) * pi * 0.25f);
-            const auto rightGain = std::sin((pan + 1.0f) * pi * 0.25f);
+            if (std::abs(pan - voice.cachedPan) > 0.0001f)
+            {
+                voice.cachedPan = pan;
+                voice.cachedLeftPan = std::cos((pan + 1.0f) * pi * 0.25f);
+                voice.cachedRightPan = std::sin((pan + 1.0f) * pi * 0.25f);
+            }
+            if (std::abs(gainDb - voice.cachedGainDb) > 0.001f)
+            {
+                voice.cachedGainDb = gainDb;
+                voice.cachedGainLinear = std::pow(10.0f, gainDb / 20.0f);
+            }
+            if (std::abs(pitchMod - voice.cachedPitchMod) > 0.0001f)
+            {
+                voice.cachedPitchMod = pitchMod;
+                voice.cachedPitchRatio = std::exp2(pitchMod / 12.0f);
+            }
             const auto pressureGain = 1.0f + 0.1f * voice.pressure;
-            const auto gain = voice.gain * std::pow(10.0f, gainDb / 20.0f) * pressureGain
+            const auto gain = voice.gain * voice.cachedGainLinear * pressureGain
                             * voice.attackGain * voice.releaseGain;
 
-            const auto outputL = filteredL * gain * leftGain;
-            const auto outputR = filteredR * gain * rightGain;
+            const auto outputL = filteredL * gain * voice.cachedLeftPan;
+            const auto outputR = filteredR * gain * voice.cachedRightPan;
             left[i] += outputL;
             if (right) right[i] += outputR;
             if (reverbLeft) reverbLeft[i] += outputL * voice.reverbSend;
@@ -449,7 +498,7 @@ void MultisampleEngine::render(float* left, float* right, std::size_t samples, d
             if (delayLeft) delayLeft[i] += outputL * voice.delaySend;
             if (delayRight) delayRight[i] += outputR * voice.delaySend;
 
-            const auto pitchStep = voice.step * std::exp2(pitchMod / 12.0f);
+            const auto pitchStep = voice.step * voice.cachedPitchRatio;
             if (voice.loopMode == ZoneLoopMode::PingPong
                 && (voice.keyDown || voice.sustainHeld)
                 && voice.position >= voice.loopStart

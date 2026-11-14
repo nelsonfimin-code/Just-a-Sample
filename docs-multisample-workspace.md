@@ -10,7 +10,9 @@ Open Just a Sample in Logic and choose **MAP** from the top workspace bar.
 2. A single sample is mapped across the full MIDI keyboard with C4 as its root note.
 3. Multiple samples are distributed into adjacent key zones. Up to 49 samples are mapped across C2–C6; larger sets are spread across the full MIDI range.
 4. Select a zone from the list or click its range in the keyboard map.
-5. Edit key low/high, velocity low/high, root key, gain, pan, filter, cutoff, resonance, saturation drive, reverb send and delay send. Press **Apply zone** to commit the edit.
+5. Edit key/velocity ranges, root key, round-robin group, key/velocity fades, sample start/end, loop start/end/mode/crossfade, gain, pan, filter, cutoff, resonance, saturation drive, reverb send and delay send. Press **Apply zone changes** to commit the edit.
+
+A round-robin group of `0` layers the zone normally. Zones sharing the same non-zero group are selected one at a time in rotation when their key and velocity ranges match. Fade values are measured in MIDI key or velocity steps; sample and loop boundaries are measured in frames.
 
 The keyboard map shows up to eight visual lanes. The zone list remains the authoritative full list when an instrument has more than eight zones.
 
@@ -40,13 +42,13 @@ Routes, MPE configuration and LFO settings are included in plug-in state recall.
 ## Play, edit and effects
 
 - **PLAY** retains the familiar sample performance workflow.
-- **EDIT** exposes the existing waveform and sample-editing workflow.
+- **EDIT** is a focused waveform workspace with the sample navigator; PLAY returns to the full familiar control layout.
 - **FX** opens the existing effect rack.
 - Per-zone reverb and delay sends feed shared time-effect buses. The current delay is 375 ms with 28% feedback and 38% wet return; the reverb uses a medium room setting. These are fixed engine defaults in this iteration, while each zone controls its own send amount.
 
 ## Compatibility and safety
 
-- The audio engine uses fixed-capacity voice and zone storage and preallocated send buffers. Sample decoding and transient analysis happen off the audio thread.
+- The audio engine uses fixed-capacity voice and zone storage and preallocated send buffers. Sample decoding and transient analysis happen off the audio thread. Instrument decoding is capped at 512 MiB of decoded float audio per loaded instrument, and only the first two channels are retained because the engine renders stereo.
 - Zone filters use a resonant state-variable filter with low-pass, high-pass and band-pass modes.
 - The installed AU and VST3 are universal macOS builds for Intel and Apple Silicon.
 - Do not replace an open Logic session to load a new plug-in build. Close/reopen Logic or rescan plug-ins when ready to test the installed version in a separate project.

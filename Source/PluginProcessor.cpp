@@ -658,6 +658,8 @@ bool JustaSampleAudioProcessor::loadInstrumentInternal(const sampler::Instrument
     std::string validationError;
     if (!model.validate(&validationError)) return fail(validationError);
 
+    constexpr std::uint64_t maximumDecodedSampleBytes = 512ull * 1024ull * 1024ull;
+    std::uint64_t decodedSampleBytes = 0;
     std::vector<InstrumentSample> loaded;
     loaded.reserve(model.size());
     {
@@ -666,11 +668,21 @@ bool JustaSampleAudioProcessor::loadInstrumentInternal(const sampler::Instrument
         {
             const juce::File file{ juce::String(zone.sample.path) };
             std::unique_ptr<juce::AudioFormatReader> reader{ formatManager.createReaderFor(file) };
-            if (!reader || reader->lengthInSamples <= 0 || reader->lengthInSamples > INT_MAX)
+            if (!reader || reader->lengthInSamples <= 0 || reader->lengthInSamples > INT_MAX || reader->numChannels <= 0)
                 return fail("Could not read sample file: " + file.getFileName());
+            const auto channelsToDecode = juce::jmin(2, int(reader->numChannels));
+            const auto frames = std::uint64_t(reader->lengthInSamples);
+            const auto bytesPerFrame = std::uint64_t(channelsToDecode) * sizeof(float);
+            if (frames > maximumDecodedSampleBytes / bytesPerFrame)
+                return fail("This instrument exceeds the 512 MiB decoded-sample memory limit.");
+            const auto sampleBytes = frames * bytesPerFrame;
+            if (decodedSampleBytes > maximumDecodedSampleBytes - sampleBytes)
+                return fail("This instrument exceeds the 512 MiB decoded-sample memory limit.");
+            decodedSampleBytes += sampleBytes;
+
             InstrumentSample sample;
             sample.sampleRate = reader->sampleRate;
-            sample.buffer.setSize(int(reader->numChannels), int(reader->lengthInSamples));
+            sample.buffer.setSize(channelsToDecode, int(reader->lengthInSamples));
             if (!reader->read(&sample.buffer, 0, int(reader->lengthInSamples), 0, true, true))
                 return fail("Failed while decoding sample: " + file.getFileName());
             loaded.push_back(std::move(sample));

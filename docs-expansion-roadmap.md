@@ -1,7 +1,7 @@
 # Sampler Expansion Roadmap
 
 ## Product goal
-Cross-platform sampler instrument for macOS and Windows with AU, VST3 and standalone formats. Preserve the original sampler's quick workflow; keep advanced controls optional. The current pass is engine-first; the existing interface is intentionally unchanged.
+Cross-platform sampler instrument for macOS and Windows with AU and VST3 formats. Preserve the original sampler's quick PLAY workflow; expose advanced mapping, editing and MPE controls in separate workspaces. The native JUCE editor now includes PLAY, MAP, EDIT, MOD and FX workspaces.
 
 ## Implemented engine increment
 
@@ -28,13 +28,13 @@ Cross-platform sampler instrument for macOS and Windows with AU, VST3 and standa
 - Offline .jasz preset file API supports bounded, atomic save/load. Missing-sample relinking searches user-supplied folders by exact filename and refuses ambiguous matches; relinking is transactional and never guesses between duplicates.
 - Processor exposes background .jasz loading with sample decoding off the message/audio threads, generation-based cancellation/supersession, message-thread completion callbacks, and processor-lifetime-safe shutdown.
 
-## Next engineering gates
-1. Run the installed AU/VST3 in a separate real Logic project and verify multisample loading, MIDI expression, state round-trip, and long-session stability. Do not disturb the user's open Logic project.
-2. Implement the approved modern sampler interface direction in `docs-ui-modernization-research.md`; preserve the existing fast workflow and keep advanced mapping/MPE controls progressively disclosed. The research is complete; UI code remains unchanged until the implementation spike is validated.
-3. Connect the background .jasz loading/cancellation API to the future instrument browser and add progress/error presentation.
-4. Add slice auditioning and optional destructive/non-destructive region editing through the future editor workflow.
-5. Extend the per-zone effects stage with resonant filter models and optional time-based sends, then profile large instruments.
-6. Validate Windows VST3 builds and runtime separately.
+## Remaining external validation gates
+1. Run the Windows x64 VST3 GitHub Actions workflow and fix any platform-specific build or test failures.
+2. Validate the latest installed AU/VST3 in a separate real Logic project: import samples, edit key/velocity maps and loops, play MPE expression, save/reopen state, and run a long session. Do not disturb the user's already-open Logic project.
+3. Profile 88-voice playback and large multisample sets in Release on the 2017 Intel Mac with real source material, not only synthetic test buffers.
+4. Complete host-side usability review of all five workspaces at minimum and maximum editor sizes; verify host scaling, keyboard focus, automation, and preset recall.
+
+The JIVE experiment remains optional and is not a production dependency. The implementation uses native JUCE components and the existing custom LookAndFeel to avoid an unverified UI framework dependency.
 
 ## Audio-thread rules
 No file I/O, decoding, heap allocation, or blocking work in the audio callback or engine rendering. Prepare immutable sample assets before publishing them to the engine. Processor state changes are protected by the existing voice lock. Do not report an instrument as playable until all referenced assets are loaded and validated.
@@ -48,7 +48,7 @@ Zone range/velocity boundaries; overlapping layers; round-robin; serialization r
 - AU installed at ~/Library/Audio/Plug-Ins/Components/Just a Sample.component; Apple's complete auval -v aumu Bpf2 Manu suite passes, including render, MIDI, format, and parameter tests.
 - VST3 installed at ~/Library/Audio/Plug-Ins/VST3/Just a Sample.vst3; pluginval strictness levels 5 and 10 both pass, including parameter fuzzing, state restore, automation, bus configuration, and processing tests. The optional standalone Steinberg VST3 validator was not configured in pluginval.
 - sampler_expansion_tests and sampler_processor_tests pass through CTest (2/2). The processor integration test loads a real WAV, renders finite nonzero audio from MIDI, serializes/restores the instrument through plugin state, then loads a real .jasz preset on the background worker and renders again. The expansion suite also passes AddressSanitizer and UndefinedBehaviorSanitizer, including v1/v2 preset compatibility and per-zone filter modes.
-- Existing UI remains unchanged. Processor-level multisample playback, plugin-state restoration, and background .jasz sample loading are now covered by an integration harness. No browser/import control exposes these features yet; a real user-facing multisample workflow is therefore not complete.
+- The native JUCE editor now exposes PLAY, MAP, EDIT, MOD and FX workspaces. MAP supports sample import, automatic mapping, zone selection, key/velocity ranges, root note, round robin, fades, sample start/end, forward/ping-pong loop boundaries and crossfade, per-zone resonant filtering/saturation/reverb/delay sends, slicing, and .jasz load/save. EDIT is a focused waveform workspace. MOD exposes MPE, LFO and modulation routing. The separate Logic host review is still outstanding.
 - Forward/ping-pong looping, forward-loop crossfade, transient marker analysis, and transient-to-slice zone generation are implemented. Slice audition through generated zones is supported by the engine API but not yet exposed in the UI.
 - Missing-sample relinking is implemented and tested for unique and ambiguous filename matches. In-DAW multisample editing, Windows runtime validation, and a real Logic project test of multisample loading/state round-trip remain open.
 

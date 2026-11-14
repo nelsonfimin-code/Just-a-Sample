@@ -16,7 +16,7 @@ public:
  void setOutputSampleRate(double rate) noexcept;
  void setVoiceLimit(std::size_t voices) noexcept;
  void setMPEZoneConfig(MPEZoneConfig config) noexcept;
- void setModulationMatrix(const ModulationMatrix& matrix) noexcept { modulation_=matrix; }
+ void setModulationMatrix(const ModulationMatrix& matrix) noexcept;
  void configureLfo(float rateHz,Lfo::Shape shape) noexcept { lfoRateHz_=rateHz;lfoShape_=shape; }
  void handleMidi(const EngineMidiEvent&) noexcept;
  void render(float* left,float* right,std::size_t samples,double outputRate,
@@ -35,6 +35,13 @@ private:
   ZoneFilterMode filterMode=ZoneFilterMode::Off;
   float filterCutoffHz=20000.0f,filterResonance=0.0f,driveDb=0.0f;
   float reverbSend=0.0f,delaySend=0.0f;
+  float driveLinear=1.0f,driveNormalizer=1.0f;
+  float cachedFilterCutoff=-1.0f,cachedFilterResonance=-1.0f;
+  float filterK=0.70710678f,filterA1=1.0f,filterA2=0.0f,filterA3=0.0f;
+  float cachedGainDb=999.0f,cachedGainLinear=1.0f;
+  float cachedPan=999.0f,cachedLeftPan=0.70710678f,cachedRightPan=0.70710678f;
+  float cachedPitchMod=999.0f,cachedPitchRatio=1.0f;
+  double cachedFilterRate=0.0;
   Lfo lfo;
   bool active=false,releasing=false,keyDown=true,sustainHeld=false;
  };
@@ -46,6 +53,7 @@ private:
  std::array<ZoneAudio,maxZones> audio_{};std::size_t audioCount_=0;
  InstrumentModel instrument_;std::array<Voice,maxVoices> voices_{};
  MPEExpression mpe_;ModulationMatrix modulation_;std::size_t voiceLimit_=88;
+ bool modulationUsesLfo_=false;
  float lfoRateHz_=1.0f;Lfo::Shape lfoShape_=Lfo::Shape::Sine;
  double outputRate_=44100.0;
 };

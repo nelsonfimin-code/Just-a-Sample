@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <vector>
 #include <fstream>
 #include <cstdlib>
 #include <cstdio>
@@ -412,6 +413,42 @@ void testPlaybackEngine()
     float tailRight[4096] = {};
     engine.render(tailLeft, tailRight, 4096, 48000.0);
     assert(engine.activeVoices() == 0);
+
+    // Exercise the configured 88-voice default under a sustained render load.
+    auto stressZone = makeZone("88-voice-stress", 0, 127, 1, 127);
+    stressZone.rootKey = 60;
+    stressZone.sample.frames = 48000;
+    stressZone.loopMode = ZoneLoopMode::Forward;
+    stressZone.loopStart = 0;
+    stressZone.loopEnd = 48000;
+    InstrumentModel stressModel;
+    assert(stressModel.addZone(stressZone));
+    std::vector<float> stressSamples(48000, 0.1f);
+    ZoneAudio stressAudio { &stressModel.zones()[0], stressSamples.data(), stressSamples.data(),
+                            stressSamples.size(), 48000.0 };
+    MultisampleEngine stressEngine;
+    stressEngine.setVoiceLimit(88);
+    assert(stressEngine.setInstrument(stressModel, &stressAudio, 1));
+    for (std::uint8_t note = 0; note < 88; ++note)
+        stressEngine.handleMidi({ EngineMidiEvent::Type::NoteOn, 1, note, 0, 127 });
+    assert(stressEngine.activeVoices() == 88);
+    float stressLeft[512] = {}, stressRight[512] = {};
+    double stressEnergy = 0.0;
+    const auto stressStart = std::chrono::steady_clock::now();
+    for (int block = 0; block < 60; ++block)
+    {
+        std::fill(std::begin(stressLeft), std::end(stressLeft), 0.0f);
+        std::fill(std::begin(stressRight), std::end(stressRight), 0.0f);
+        stressEngine.render(stressLeft, stressRight, 512, 48000.0);
+        for (int frame = 0; frame < 512; ++frame)
+        {
+            assert(std::isfinite(stressLeft[frame]) && std::isfinite(stressRight[frame]));
+            stressEnergy += std::abs(double(stressLeft[frame])) + std::abs(double(stressRight[frame]));
+        }
+    }
+    const auto stressMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - stressStart).count();
+    assert(stressEnergy > 1.0 && stressEngine.activeVoices() == 88);
+    std::cout << "88-voice stress render: 60 x 512 frames in " << stressMs << " ms\n";
 
     for (const auto mode : { ZoneFilterMode::LowPass, ZoneFilterMode::HighPass, ZoneFilterMode::BandPass })
     {
