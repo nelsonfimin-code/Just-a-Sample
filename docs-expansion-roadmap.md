@@ -26,6 +26,7 @@ Cross-platform sampler instrument for macOS and Windows with AU and VST3 formats
 - Offline transient analysis service computes multi-channel RMS envelopes and bounded slice markers with adjustable sensitivity, window size, minimum spacing, and maximum marker count.
 - Transient-to-slice region generation creates one-key sample zones with exclusive sample boundaries, velocity ranges, configurable key ranges, minimum slice length, and a 128-zone cap. Generated slices can be serialized in the existing JASZ instrument format and loaded by the multisample engine.
 - Offline .jasz preset file API supports bounded, atomic save/load. Missing-sample relinking searches user-supplied folders by exact filename and refuses ambiguous matches; relinking is transactional and never guesses between duplicates.
+- Selected-zone audition is available from the MAP workspace. Preview isolates the chosen zone from overlapping mappings, stops after 2.5 seconds, and does not interrupt unrelated active notes.
 - Processor exposes background .jasz loading with sample decoding off the message/audio threads, generation-based cancellation/supersession, message-thread completion callbacks, and processor-lifetime-safe shutdown.
 
 ## Remaining external validation gates
@@ -81,3 +82,13 @@ The latest verification is listed in **Current verified status** above. In parti
 4. The JIVE compatibility spike did not complete within the local build window, so JIVE was not added. The production UI remains native JUCE to avoid an unverified layout dependency.
 
 The editor and engine are now integrated, but production readiness is still conditional on the Windows CI and separate real-Logic host gates above.
+
+## Execution update — 2026-11-14 — MAP slice audition
+
+- Added selected-zone preview to the multisample engine and processor API. Preview voice tracking allows it to stop independently of normal MIDI voices.
+- Added a **Preview slice** button to MAP; it auditions the selected zone for 2.5 seconds and then stops automatically.
+- Added regression coverage proving selected-zone isolation with overlapping zones and proving that stopping preview preserves an unrelated sustained note.
+- Added processor integration coverage for starting and stopping a preview through the processor API.
+- TDD red observed: the new expansion test failed to compile because the preview API was not yet present. Green observed after implementation: expansion test passed.
+- Latest full universal Debug AU/VST3 build succeeded; CTest passed 2/2, including processor integration.
+- Host-level Logic playback and AU/VST3 validation remain outstanding. The new build has not been installed over the user's existing plug-ins.

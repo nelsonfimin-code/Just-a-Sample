@@ -620,6 +620,20 @@ sampler::InstrumentModel JustaSampleAudioProcessor::getInstrumentModelSnapshot()
     return instrumentModel;
 }
 
+bool JustaSampleAudioProcessor::previewInstrumentZone(const juce::String& zoneId)
+{
+    if (zoneId.isEmpty()) return false;
+    juce::ScopedLock lock(voiceLock);
+    if (!multiSampleMode.load(std::memory_order_acquire)) return false;
+    return multisampleEngine.previewZone(zoneId.toStdString(), 100);
+}
+
+void JustaSampleAudioProcessor::stopInstrumentPreview()
+{
+    juce::ScopedLock lock(voiceLock);
+    multisampleEngine.stopPreview();
+}
+
 bool JustaSampleAudioProcessor::updateInstrumentZone(const sampler::SampleZone& zone, juce::String* error)
 {
     auto fail = [error](const juce::String& message) { if (error) *error = message; return false; };

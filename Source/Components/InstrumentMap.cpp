@@ -164,20 +164,24 @@ InstrumentMapComponent::InstrumentMapComponent(JustaSampleAudioProcessor& p) : p
     addAndMakeVisible(loopMode);
 
     styleButton(loadButton); styleButton(saveButton); styleButton(addButton);
-    styleButton(sliceButton); styleButton(removeButton); styleButton(applyButton, true);
+    styleButton(sliceButton); styleButton(previewButton); styleButton(removeButton); styleButton(applyButton, true);
     addAndMakeVisible(loadButton); addAndMakeVisible(saveButton);
-    addAndMakeVisible(addButton); addAndMakeVisible(sliceButton); addAndMakeVisible(removeButton); addAndMakeVisible(applyButton);
+    addAndMakeVisible(addButton); addAndMakeVisible(sliceButton); addAndMakeVisible(previewButton);
+    addAndMakeVisible(removeButton); addAndMakeVisible(applyButton);
     loadButton.onClick = [this] { loadPreset(); };
     saveButton.onClick = [this] { savePreset(); };
     addButton.onClick = [this] { addSamples(); };
     removeButton.onClick = [this] { removeZone(); };
     sliceButton.onClick = [this] { sliceSelectedSample(); };
+    previewButton.onClick = [this] { previewSelectedZone(); };
     applyButton.onClick = [this] { applyZone(); };
     refresh();
 }
 
 InstrumentMapComponent::~InstrumentMapComponent()
 {
+    stopTimer();
+    processor.stopInstrumentPreview();
     analysisPool.removeAllJobs(true, 5000);
 }
 
@@ -228,6 +232,7 @@ void InstrumentMapComponent::resized()
     saveButton.setBounds(actions.removeFromLeft(86)); actions.removeFromLeft(10);
     addButton.setBounds(actions.removeFromLeft(112)); actions.removeFromLeft(6);
     sliceButton.setBounds(actions.removeFromLeft(104)); actions.removeFromLeft(6);
+    previewButton.setBounds(actions.removeFromLeft(104)); actions.removeFromLeft(6);
     removeButton.setBounds(actions.removeFromLeft(100));
     applyButton.setBounds(actions.removeFromRight(144));
     area.removeFromBottom(14);
@@ -339,6 +344,7 @@ void InstrumentMapComponent::showSelectedZone()
     filterMode.setEnabled(found);
     removeButton.setEnabled(found);
     sliceButton.setEnabled(found);
+    previewButton.setEnabled(found);
     applyButton.setEnabled(found);
     if (found)
     {
@@ -593,6 +599,34 @@ void InstrumentMapComponent::sliceSelectedSample()
             safe->loadModelAsync(std::move(next), roots);
         });
     });
+}
+
+void InstrumentMapComponent::previewSelectedZone()
+{
+    if (selectedZoneId.isEmpty())
+    {
+        setStatus("Select a slice or sample zone to preview");
+        return;
+    }
+    stopTimer();
+    processor.stopInstrumentPreview();
+    if (!processor.previewInstrumentZone(selectedZoneId))
+    {
+        previewButton.setButtonText("Preview slice");
+        setStatus("Could not preview this zone; check that its sample is loaded");
+        return;
+    }
+    previewButton.setButtonText("Previewing…");
+    setStatus("Previewing selected zone for 2.5 seconds");
+    startTimer(2500);
+}
+
+void InstrumentMapComponent::timerCallback()
+{
+    stopTimer();
+    processor.stopInstrumentPreview();
+    previewButton.setButtonText("Preview slice");
+    setStatus("Slice preview finished");
 }
 
 void InstrumentMapComponent::removeZone()

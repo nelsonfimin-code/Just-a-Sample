@@ -60,6 +60,18 @@ int main(int argc, char** argv)
         std::cerr << "MIDI render produced no meaningful audio; energy=" << energy << '\n';
         return 8;
     }
+    if (!processor.previewInstrumentZone("integration-sine"))
+    {
+        std::cerr << "Processor could not start selected-zone preview.\n";
+        return 28;
+    }
+    audio.clear();
+    midi.clear();
+    hostProcessor.processBlock(audio, midi);
+    processor.stopInstrumentPreview();
+    for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+        for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+            if (!std::isfinite(audio.getSample(channel, frame))) return 29;
     double timeEffectTailEnergy = 0.0;
     for (int block = 1; block < 80; ++block)
     {

@@ -19,6 +19,8 @@ public:
  void setModulationMatrix(const ModulationMatrix& matrix) noexcept;
  void configureLfo(float rateHz,Lfo::Shape shape) noexcept { lfoRateHz_=rateHz;lfoShape_=shape; }
  void handleMidi(const EngineMidiEvent&) noexcept;
+ bool previewZone(const std::string& zoneId, std::uint8_t velocity = 100) noexcept;
+ void stopPreview() noexcept;
  void render(float* left,float* right,std::size_t samples,double outputRate,
              float* reverbLeft=nullptr,float* reverbRight=nullptr,
              float* delayLeft=nullptr,float* delayRight=nullptr) noexcept;
@@ -43,7 +45,7 @@ private:
   float cachedPitchMod=999.0f,cachedPitchRatio=1.0f;
   double cachedFilterRate=0.0;
   Lfo lfo;
-  bool active=false,releasing=false,keyDown=true,sustainHeld=false;
+  bool active=false,releasing=false,keyDown=true,sustainHeld=false,previewVoice=false;
  };
  Voice* allocateVoice()noexcept;
  void noteOn(std::uint8_t,std::uint8_t,std::uint8_t)noexcept;
@@ -54,6 +56,7 @@ private:
  InstrumentModel instrument_;std::array<Voice,maxVoices> voices_{};
  MPEExpression mpe_;ModulationMatrix modulation_;std::size_t voiceLimit_=88;
  bool modulationUsesLfo_=false;
+ const SampleZone* previewZone_=nullptr;
  float lfoRateHz_=1.0f;Lfo::Shape lfoShape_=Lfo::Shape::Sine;
  double outputRate_=44100.0;
 };

@@ -423,6 +423,28 @@ void testPlaybackEngine()
     float sampleRight[8] = { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f };
     ZoneAudio zoneAudio { &playbackModel.zones()[0], sampleLeft, sampleRight, 8, 48000.0 };
 
+    // A slice audition must isolate the selected zone, then stop without
+    // killing unrelated notes already playing in the instrument.
+    auto broadZone = makeZone("audition-broad", 0, 127, 1, 127);
+    auto selectedSlice = makeZone("audition-slice", 60, 60, 1, 127);
+    InstrumentModel auditionModel;
+    assert(auditionModel.addZone(broadZone));
+    assert(auditionModel.addZone(selectedSlice));
+    ZoneAudio auditionAudio[] = {
+        { &auditionModel.zones()[0], sampleLeft, sampleRight, 8, 48000.0 },
+        { &auditionModel.zones()[1], sampleLeft, sampleRight, 8, 48000.0 }
+    };
+    MultisampleEngine auditionEngine;
+    assert(auditionEngine.setInstrument(auditionModel, auditionAudio, 2));
+    auditionEngine.handleMidi({ EngineMidiEvent::Type::NoteOn, 1, 61, 0, 100 });
+    assert(auditionEngine.activeVoices() == 1);
+    assert(auditionEngine.previewZone("audition-slice", 100));
+    assert(auditionEngine.activeVoices() == 2);
+    auditionEngine.stopPreview();
+    assert(auditionEngine.activeVoices() == 1);
+    auditionEngine.handleMidi({ EngineMidiEvent::Type::NoteOff, 1, 61, 0, 0 });
+    auditionEngine.reset();
+
     MultisampleEngine engine;
     playbackZone.filterMode = ZoneFilterMode::LowPass;
     playbackZone.filterCutoffHz = 4000.0f;

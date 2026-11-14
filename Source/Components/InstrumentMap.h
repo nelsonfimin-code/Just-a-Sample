@@ -17,7 +17,8 @@ public:
 };
 
 class InstrumentMapComponent final : public juce::Component,
-                                    private juce::ListBoxModel
+                                    private juce::ListBoxModel,
+                                    private juce::Timer
 {
 public:
     explicit InstrumentMapComponent(JustaSampleAudioProcessor& processor);
@@ -36,6 +37,8 @@ private:
     void applyZone();
     void removeZone();
     void sliceSelectedSample();
+    void previewSelectedZone();
+    void timerCallback() override;
     void loadModelAsync(sampler::InstrumentModel model, juce::StringArray roots,
                         std::function<void(bool, const juce::String&)> completion = {});
     void showSelectedZone();
@@ -60,7 +63,7 @@ private:
                      sampleStart, sampleEnd, loopStart, loopEnd, loopCrossfade;
     juce::ComboBox filterMode, loopMode;
     juce::TextButton loadButton { "Load .jasz" }, saveButton { "Save .jasz" },
-                     addButton { "+ Add samples" }, sliceButton { "Slice sample" }, removeButton { "Remove zone" },
+                     addButton { "+ Add samples" }, sliceButton { "Slice sample" }, previewButton { "Preview slice" }, removeButton { "Remove zone" },
                      applyButton { "Apply zone changes" };
     std::unique_ptr<juce::FileChooser> chooser;
     juce::ThreadPool analysisPool { 1 };

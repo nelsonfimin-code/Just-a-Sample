@@ -61,6 +61,8 @@ public:
     void loadInstrumentModelAsync(sampler::InstrumentModel model,
                                   std::function<void(bool, const juce::String&)> callback = {});
     bool updateInstrumentZone(const sampler::SampleZone& zone, juce::String* error = nullptr);
+    bool previewInstrumentZone(const juce::String& zoneId);
+    void stopInstrumentPreview();
     // Loads a .jasz preset and its samples on a worker thread. Completion is posted to
     // the message thread. A newer load, single-sample load, clear, or explicit cancel
     // supersedes the request; superseded callbacks are intentionally not invoked.

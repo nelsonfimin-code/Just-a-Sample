@@ -59,6 +59,7 @@ void MultisampleEngine::reset() noexcept
 {
     for (auto& voice : voices_)
         voice = {};
+    previewZone_ = nullptr;
     mpe_.reset();
 }
 
@@ -124,7 +125,7 @@ void MultisampleEngine::noteOn(std::uint8_t channel, std::uint8_t note, std::uin
 
     for (const auto& match : matches)
     {
-        if (!match.zone)
+        if (!match.zone || (previewZone_ != nullptr && match.zone != previewZone_))
             continue;
 
         const auto audio = std::find_if(audio_.begin(), audio_.begin() + std::ptrdiff_t(audioCount_),
@@ -211,6 +212,32 @@ void MultisampleEngine::noteOn(std::uint8_t channel, std::uint8_t note, std::uin
         voice->releasing = false;
         voice->keyDown = true;
         voice->sustainHeld = false;
+        voice->previewVoice = previewZone_ != nullptr;
+    }
+}
+
+bool MultisampleEngine::previewZone(const std::string& zoneId, std::uint8_t velocity) noexcept
+{
+    stopPreview();
+    const auto it = std::find_if(instrument_.zones().begin(), instrument_.zones().end(),
+        [&](const SampleZone& zone) { return zone.id == zoneId; });
+    if (it == instrument_.zones().end() || velocity == 0)
+        return false;
+
+    previewZone_ = &*it;
+    noteOn(1, it->rootKey, std::min<std::uint8_t>(velocity, 127));
+    previewZone_ = nullptr;
+    return std::any_of(voices_.begin(), voices_.end(),
+        [](const Voice& voice) { return voice.active && voice.previewVoice; });
+}
+
+void MultisampleEngine::stopPreview() noexcept
+{
+    for (auto& voice : voices_)
+    {
+        if (!voice.active || !voice.previewVoice)
+            continue;
+        voice = {};
     }
 }
 

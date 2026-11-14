@@ -20,6 +20,10 @@ The keyboard map shows up to eight visual lanes. The zone list remains the autho
 
 Select a zone and choose **Slice sample**. Transient analysis runs on a background worker, detects slice points, and replaces the selected zone with key-mapped slice zones. Slices are distributed across MIDI keys 36–84. The analysis path currently accepts samples up to 20 million frames per channel; unusually long files should be trimmed before slicing.
 
+## Preview a zone or slice
+
+Select a zone in MAP and choose **Preview slice**. The engine auditions only that selected zone, even if other zones overlap its key and velocity range. Preview stops automatically after 2.5 seconds; it does not stop unrelated notes already playing. This is useful for checking transient slices before saving the instrument.
+
 ## Save and load
 
 - **Save .jasz** writes the current zone map and sample references to a versioned instrument preset.
