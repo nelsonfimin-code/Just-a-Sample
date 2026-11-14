@@ -35,6 +35,13 @@ bool InstrumentModel::valid(const SampleZone& z,std::string* e){
  if(z.rootKey<z.keyLow||z.rootKey>z.keyHigh)return fail("Root key must be inside key range.");
  if(!std::isfinite(z.gainDb)||z.gainDb< -96||z.gainDb>24)return fail("Gain must be -96 to +24 dB.");
  if(!std::isfinite(z.pan)||z.pan< -1||z.pan>1)return fail("Pan must be -1 to +1.");
+ if(z.filterMode!=ZoneFilterMode::Off&&z.filterMode!=ZoneFilterMode::LowPass
+    &&z.filterMode!=ZoneFilterMode::HighPass&&z.filterMode!=ZoneFilterMode::BandPass)
+  return fail("Invalid zone filter mode.");
+ if(!std::isfinite(z.filterCutoffHz)||z.filterCutoffHz<20.0f||z.filterCutoffHz>200000.0f)
+  return fail("Filter cutoff must be between 20 Hz and 200 kHz.");
+ if(!std::isfinite(z.driveDb)||z.driveDb<0.0f||z.driveDb>24.0f)
+  return fail("Drive must be between 0 and 24 dB.");
  const auto end=z.sampleEnd==0?z.sample.frames:z.sampleEnd;
  if(z.sampleStart>=z.sample.frames||end<=z.sampleStart||end>z.sample.frames)return fail("Invalid sample start/end range.");
  if(z.loopMode!=ZoneLoopMode::Off){
@@ -62,19 +69,20 @@ ZoneSelection InstrumentModel::select(std::uint8_t note,std::uint8_t vel)noexcep
 bool InstrumentModel::validate(std::string* e)const{std::set<std::string> ids;for(const auto& z:zones_){if(!valid(z,e))return false;if(!ids.insert(z.id).second){if(e)*e="Duplicate zone id.";return false;}}return true;}
 std::vector<std::uint8_t> InstrumentModel::serialize(std::string* e)const{
  if(!validate(e)||zones_.size()>maxZones)return {};
- std::vector<std::uint8_t>b;b.reserve(16+zones_.size()*96);b.insert(b.end(),{'J','A','S','Z'});putU32(b,2);putU32(b,std::uint32_t(zones_.size()));
+ std::vector<std::uint8_t>b;b.reserve(16+zones_.size()*96);b.insert(b.end(),{'J','A','S','Z'});putU32(b,3);putU32(b,std::uint32_t(zones_.size()));
  for(const auto& z:zones_){if(!putString(b,z.id)||!putString(b,z.sample.id)||!putString(b,z.sample.path)){if(e)*e="Instrument string exceeds storage limit.";return {};}
   putDouble(b,z.sample.sampleRate);putU32(b,z.sample.channels);putU64(b,z.sample.frames);
   b.insert(b.end(),{z.keyLow,z.keyHigh,z.velocityLow,z.velocityHigh,z.rootKey});
   putFloat(b,z.gainDb);putFloat(b,z.pan);b.insert(b.end(),{z.roundRobinGroup,z.keyFadeIn,z.keyFadeOut,z.velocityFadeIn,z.velocityFadeOut});
   putU64(b,z.sampleStart);putU64(b,z.sampleEnd);putU64(b,z.loopStart);putU64(b,z.loopEnd);putU32(b,z.loopCrossfadeFrames);b.push_back(std::uint8_t(z.loopMode));
+  b.push_back(std::uint8_t(z.filterMode));putFloat(b,z.filterCutoffHz);putFloat(b,z.driveDb);
  }
  return b;
 }
 bool InstrumentModel::deserialize(std::span<const std::uint8_t> bytes,std::string* e){
  auto fail=[&](const char* m){if(e)*e=m;return false;};
  if(bytes.size()<12||std::memcmp(bytes.data(),"JASZ",4)!=0)return fail("Invalid instrument file signature.");
- Reader r(bytes.subspan(4));std::uint32_t version=0,count=0;if(!r.u32(version)||(version!=1&&version!=2))return fail("Unsupported instrument file version.");
+ Reader r(bytes.subspan(4));std::uint32_t version=0,count=0;if(!r.u32(version)||(version!=1&&version!=2&&version!=3))return fail("Unsupported instrument file version.");
  if(!r.u32(count)||count>maxZones)return fail("Invalid instrument zone count.");
  InstrumentModel candidate;
  for(std::uint32_t i=0;i<count;++i){SampleZone z;
@@ -84,6 +92,13 @@ bool InstrumentModel::deserialize(std::span<const std::uint8_t> bytes,std::strin
    std::uint8_t loopMode=0;
    if(!r.u64(z.sampleStart)||!r.u64(z.sampleEnd)||!r.u64(z.loopStart)||!r.u64(z.loopEnd)||!r.u32(z.loopCrossfadeFrames)||!r.u8(loopMode))return fail("Truncated sample playback settings.");
    z.loopMode=ZoneLoopMode(loopMode);
+  }
+  if(version>=3)
+  {
+   std::uint8_t filterMode=0;
+   if(!r.u8(filterMode)||!r.f32(z.filterCutoffHz)||!r.f32(z.driveDb))
+    return fail("Truncated zone effects settings.");
+   z.filterMode=ZoneFilterMode(filterMode);
   }
   if(!candidate.addZone(std::move(z),e))return false;
  }

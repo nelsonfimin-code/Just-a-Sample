@@ -10,7 +10,8 @@ Cross-platform sampler instrument for macOS and Windows with AU, VST3 and standa
 - Velocity layers and simultaneous sample layers.
 - Round-robin groups.
 - Fixed-capacity zone selection: up to 128 simultaneous matches, no heap allocation during note selection.
-- Versioned JASZ binary serialization (v2) with bounds checks, validation, corruption/truncation rejection, transactional restore, and v1 compatibility.
+- Versioned JASZ binary serialization (v3) with bounds checks, validation, corruption/truncation rejection, transactional restore, and v1/v2 compatibility.
+- Per-zone filter modes (off/low-pass/high-pass/band-pass), cutoff frequency, and normalized soft-saturation drive; legacy presets default these additions safely to bypass.
 - Per-zone playback start/end, forward/ping-pong loop modes, and forward-loop crossfades.
 
 ### Multisample playback engine
@@ -31,7 +32,7 @@ Cross-platform sampler instrument for macOS and Windows with AU, VST3 and standa
 1. Connect the background .jasz loading/cancellation API to the future instrument browser and add progress/error presentation.
 2. Add slice auditioning and optional destructive/non-destructive region editing through the future editor workflow.
 3. Add the instrument browser, keyboard/velocity mapping editor, drag/drop, slicing view, and MPE/modulation controls. UI work remains deferred as requested.
-4. Add deeper per-zone effects routing and performance profiling with large instruments.
+4. Extend the per-zone effects stage with resonant filter models and optional time-based sends, then profile large instruments.
 5. Test installed AU/VST3 in real Logic sessions, including multisample loading, MIDI controller expression, and state round-trip. pluginval/auval checks are already passing.
 6. Validate Windows VST3 builds and runtime separately.
 
@@ -46,7 +47,7 @@ Zone range/velocity boundaries; overlapping layers; round-robin; serialization r
 - Both installed bundles pass deep/strict code-signature verification.
 - AU installed at ~/Library/Audio/Plug-Ins/Components/Just a Sample.component; Apple's complete auval -v aumu Bpf2 Manu suite passes, including render, MIDI, format, and parameter tests.
 - VST3 installed at ~/Library/Audio/Plug-Ins/VST3/Just a Sample.vst3; pluginval strictness levels 5 and 10 both pass, including parameter fuzzing, state restore, automation, bus configuration, and processing tests. The optional standalone Steinberg VST3 validator was not configured in pluginval.
-- sampler_expansion_tests passes through CTest (1/1); the expanded standalone suite also passes AddressSanitizer and UndefinedBehaviorSanitizer.
+- sampler_expansion_tests passes through CTest (1/1); the expanded standalone suite also passes AddressSanitizer and UndefinedBehaviorSanitizer, including v1/v2 preset compatibility and all per-zone filter modes.
 - Existing UI remains unchanged. The processor's instrument-loading API is implemented, but no browser/import control exposes it yet; a real user-facing multisample workflow is therefore not complete.
 - Forward/ping-pong looping, forward-loop crossfade, transient marker analysis, and transient-to-slice zone generation are implemented. Slice audition through generated zones is supported by the engine API but not yet exposed in the UI.
 - Missing-sample relinking is implemented and tested for unique and ambiguous filename matches. In-DAW multisample editing, Windows runtime validation, and a real Logic project test of multisample loading/state round-trip remain open.

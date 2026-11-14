@@ -266,6 +266,9 @@ void testInstrumentFileIO()
     zone.sample.channels = 1;
     zone.sample.frames = 1024;
     InstrumentModel model;
+    zone.filterMode = ZoneFilterMode::LowPass;
+    zone.filterCutoffHz = 3200.0f;
+    zone.driveDb = 6.0f;
     assert(model.addZone(zone));
 
     const auto preset = root + "/KickKit.jasz";
@@ -274,6 +277,27 @@ void testInstrumentFileIO()
     InstrumentModel loaded;
     assert(loadInstrumentFile(preset, loaded, &error));
     assert(loaded.size() == 1 && loaded.zones()[0].sample.path == originalSample);
+    assert(loaded.zones()[0].filterMode == ZoneFilterMode::LowPass);
+    assert(std::abs(loaded.zones()[0].filterCutoffHz - 3200.0f) < 0.001f);
+    assert(std::abs(loaded.zones()[0].driveDb - 6.0f) < 0.001f);
+
+    // Newer zone effects fields must not break older v1/v2 instrument maps.
+    auto v2Bytes = model.serialize(&error);
+    assert(v2Bytes.size() > 9);
+    v2Bytes[4] = 2; v2Bytes[5] = 0; v2Bytes[6] = 0; v2Bytes[7] = 0;
+    v2Bytes.resize(v2Bytes.size() - 9);
+    InstrumentModel v2Loaded;
+    assert(v2Loaded.deserialize(v2Bytes, &error));
+    assert(v2Loaded.zones()[0].filterMode == ZoneFilterMode::Off);
+
+    auto v1Bytes = v2Bytes;
+    v1Bytes[4] = 1;
+    v1Bytes.resize(v1Bytes.size() - 37);
+    InstrumentModel v1Loaded;
+    assert(v1Loaded.deserialize(v1Bytes, &error));
+    assert(v1Loaded.zones()[0].loopMode == ZoneLoopMode::Off);
+    assert(v1Loaded.zones()[0].filterMode == ZoneFilterMode::Off);
+
     assert(!saveInstrumentFile(model, root + "/invalid.txt", &error));
     InstrumentModel emptyInstrument;
     assert(!saveInstrumentFile(emptyInstrument, root + "/empty.jasz", &error));
@@ -331,7 +355,13 @@ void testPlaybackEngine()
     ZoneAudio zoneAudio { &playbackModel.zones()[0], sampleLeft, sampleRight, 8, 48000.0 };
 
     MultisampleEngine engine;
-    assert(engine.setInstrument(playbackModel, &zoneAudio, 1));
+    playbackZone.filterMode = ZoneFilterMode::LowPass;
+    playbackZone.filterCutoffHz = 4000.0f;
+    playbackZone.driveDb = 9.0f;
+    InstrumentModel filteredPlaybackModel;
+    assert(filteredPlaybackModel.addZone(playbackZone));
+    ZoneAudio filteredAudio { &filteredPlaybackModel.zones()[0], sampleLeft, sampleRight, 8, 48000.0 };
+    assert(engine.setInstrument(filteredPlaybackModel, &filteredAudio, 1));
     ModulationMatrix matrix;
     assert(matrix.addRoute({ ModSource::Velocity, ModDestination::GainDb, 6.0f, true }));
     assert(matrix.addRoute({ ModSource::Lfo1, ModDestination::Pan, 0.25f, true }));
@@ -353,6 +383,24 @@ void testPlaybackEngine()
     engine.render(tailLeft, tailRight, 4096, 48000.0);
     assert(engine.activeVoices() == 0);
 
+    for (const auto mode : { ZoneFilterMode::LowPass, ZoneFilterMode::HighPass, ZoneFilterMode::BandPass })
+    {
+        auto effectZone = makeZone("effect-mode", 60, 60, 1, 127);
+        effectZone.filterMode = mode;
+        effectZone.filterCutoffHz = 1200.0f;
+        effectZone.driveDb = 12.0f;
+        InstrumentModel effectModel;
+        assert(effectModel.addZone(effectZone));
+        ZoneAudio effectAudio { &effectModel.zones()[0], sampleLeft, sampleRight, 8, 48000.0 };
+        assert(engine.setInstrument(effectModel, &effectAudio, 1));
+        engine.handleMidi({ EngineMidiEvent::Type::NoteOn, 1, 60, 0, 127 });
+        float effectLeft[4] = {};
+        float effectRight[4] = {};
+        engine.render(effectLeft, effectRight, 4, 48000.0);
+        for (int i = 0; i < 4; ++i)
+            assert(std::isfinite(effectLeft[i]) && std::isfinite(effectRight[i]));
+        engine.reset();
+    }
     engine.setModulationMatrix(ModulationMatrix {});
     engine.configureLfo(1.0f, Lfo::Shape::Sine);
 

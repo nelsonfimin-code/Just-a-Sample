@@ -29,7 +29,9 @@ private:
   std::uint32_t loopCrossfadeFrames=0;
   ZoneLoopMode loopMode=ZoneLoopMode::Off;
   float direction=1.0f,gain=1,zoneGainDb=0,pan=0,velocity=0,keyTrack=0,pressure=0,slide=0;
-  float filterL=0,filterR=0,releaseGain=1,releaseStep=0,attackGain=1,attackStep=0;
+  float filterL=0,filterR=0,bandL=0,bandR=0,releaseGain=1,releaseStep=0,attackGain=1,attackStep=0;
+  ZoneFilterMode filterMode=ZoneFilterMode::Off;
+  float filterCutoffHz=20000.0f,driveDb=0.0f;
   Lfo lfo;
   bool active=false,releasing=false,keyDown=true,sustainHeld=false;
  };

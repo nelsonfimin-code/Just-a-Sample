@@ -144,6 +144,9 @@ void MultisampleEngine::noteOn(std::uint8_t channel, std::uint8_t note, std::uin
         voice->gain = match.velocityGain * match.keyGain * voice->velocity * voice->velocity;
         voice->zoneGainDb = match.zone->gainDb;
         voice->pan = match.zone->pan;
+        voice->filterMode = match.zone->filterMode;
+        voice->filterCutoffHz = match.zone->filterCutoffHz;
+        voice->driveDb = match.zone->driveDb;
         voice->pressure = std::max(expression.pressure, mpe_.perNotePressure(channel, note));
         voice->slide = expression.slide;
         voice->sampleStart = static_cast<double>(sampleStart);
@@ -167,7 +170,7 @@ void MultisampleEngine::noteOn(std::uint8_t channel, std::uint8_t note, std::uin
             ? 1.0f / float((outputRate_ > 0 ? outputRate_ : 44100.0) * double(attackMs) / 1000.0)
             : 0.0f;
 
-        voice->filterL = voice->filterR = 0.0f;
+        voice->filterL = voice->filterR = voice->bandL = voice->bandR = 0.0f;
         voice->releaseGain = 1.0f;
         voice->releaseStep = 0.0f;
         voice->active = true;
@@ -353,10 +356,15 @@ void MultisampleEngine::render(float* left, float* right, std::size_t samples, d
             const auto gainDb = modulation_.evaluate(ModDestination::GainDb, voice.zoneGainDb,
                                                       -96.0f, 24.0f, inputs);
             const auto pan = modulation_.evaluate(ModDestination::Pan, voice.pan, -1.0f, 1.0f, inputs);
-            const auto cutoffBase = float(rate * 0.49);
+            const auto cutoffBase = voice.filterMode == ZoneFilterMode::Off
+                ? float(rate * 0.49) : voice.filterCutoffHz;
             const auto cutoff = modulation_.evaluate(ModDestination::FilterCutoffHz, cutoffBase,
                                                       20.0f, float(rate * 0.49), inputs);
-            const auto filterEnabled = cutoff < float(rate * 0.48);
+            const auto filterEnabled = voice.filterMode != ZoneFilterMode::Off
+                || cutoff < float(rate * 0.48);
+            const auto effectiveFilterMode = voice.filterMode == ZoneFilterMode::Off
+                ? (filterEnabled ? ZoneFilterMode::LowPass : ZoneFilterMode::Off)
+                : voice.filterMode;
             const auto alpha = filterEnabled
                 ? 1.0f - std::exp(-2.0f * pi * cutoff / float(rate))
                 : 1.0f;
@@ -383,6 +391,33 @@ void MultisampleEngine::render(float* left, float* right, std::size_t samples, d
 
             voice.filterL += alpha * (rawL - voice.filterL);
             voice.filterR += alpha * (rawR - voice.filterR);
+            float filteredL = rawL;
+            float filteredR = rawR;
+            switch (effectiveFilterMode)
+            {
+                case ZoneFilterMode::Off: break;
+                case ZoneFilterMode::LowPass:
+                    filteredL = voice.filterL;
+                    filteredR = voice.filterR;
+                    break;
+                case ZoneFilterMode::HighPass:
+                    filteredL = rawL - voice.filterL;
+                    filteredR = rawR - voice.filterR;
+                    break;
+                case ZoneFilterMode::BandPass:
+                    voice.bandL += alpha * ((rawL - voice.filterL) - voice.bandL);
+                    voice.bandR += alpha * ((rawR - voice.filterR) - voice.bandR);
+                    filteredL = voice.bandL;
+                    filteredR = voice.bandR;
+                    break;
+            }
+            if (voice.driveDb > 0.001f)
+            {
+                const auto drive = std::pow(10.0f, voice.driveDb / 20.0f);
+                const auto normalizer = std::tanh(drive);
+                filteredL = std::tanh(filteredL * drive) / normalizer;
+                filteredR = std::tanh(filteredR * drive) / normalizer;
+            }
 
             const auto leftGain = std::cos((pan + 1.0f) * pi * 0.25f);
             const auto rightGain = std::sin((pan + 1.0f) * pi * 0.25f);
@@ -390,9 +425,9 @@ void MultisampleEngine::render(float* left, float* right, std::size_t samples, d
             const auto gain = voice.gain * std::pow(10.0f, gainDb / 20.0f) * pressureGain
                             * voice.attackGain * voice.releaseGain;
 
-            left[i] += voice.filterL * gain * leftGain;
+            left[i] += filteredL * gain * leftGain;
             if (right)
-                right[i] += voice.filterR * gain * rightGain;
+                right[i] += filteredR * gain * rightGain;
 
             const auto pitchStep = voice.step * std::exp2(pitchMod / 12.0f);
             if (voice.loopMode == ZoneLoopMode::PingPong
