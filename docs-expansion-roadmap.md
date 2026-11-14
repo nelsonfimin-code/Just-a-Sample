@@ -29,11 +29,11 @@ Cross-platform sampler instrument for macOS and Windows with AU, VST3 and standa
 - Processor exposes background .jasz loading with sample decoding off the message/audio threads, generation-based cancellation/supersession, message-thread completion callbacks, and processor-lifetime-safe shutdown.
 
 ## Next engineering gates
-1. Connect the background .jasz loading/cancellation API to the future instrument browser and add progress/error presentation.
-2. Add slice auditioning and optional destructive/non-destructive region editing through the future editor workflow.
-3. Add the instrument browser, keyboard/velocity mapping editor, drag/drop, slicing view, and MPE/modulation controls. UI work remains deferred as requested.
-4. Extend the per-zone effects stage with resonant filter models and optional time-based sends, then profile large instruments.
-5. Test installed AU/VST3 in real Logic sessions, including multisample loading, MIDI controller expression, and state round-trip. pluginval/auval checks are already passing.
+1. Run the installed AU/VST3 in a separate real Logic project and verify multisample loading, MIDI expression, state round-trip, and long-session stability. Do not disturb the user's open Logic project.
+2. Research and propose a modern sampler interface direction using current plugin references; preserve the existing fast workflow and keep advanced mapping/MPE controls progressively disclosed. No UI changes until the design direction is reviewed.
+3. Connect the background .jasz loading/cancellation API to the future instrument browser and add progress/error presentation.
+4. Add slice auditioning and optional destructive/non-destructive region editing through the future editor workflow.
+5. Extend the per-zone effects stage with resonant filter models and optional time-based sends, then profile large instruments.
 6. Validate Windows VST3 builds and runtime separately.
 
 ## Audio-thread rules
@@ -47,8 +47,8 @@ Zone range/velocity boundaries; overlapping layers; round-robin; serialization r
 - Both installed bundles pass deep/strict code-signature verification.
 - AU installed at ~/Library/Audio/Plug-Ins/Components/Just a Sample.component; Apple's complete auval -v aumu Bpf2 Manu suite passes, including render, MIDI, format, and parameter tests.
 - VST3 installed at ~/Library/Audio/Plug-Ins/VST3/Just a Sample.vst3; pluginval strictness levels 5 and 10 both pass, including parameter fuzzing, state restore, automation, bus configuration, and processing tests. The optional standalone Steinberg VST3 validator was not configured in pluginval.
-- sampler_expansion_tests passes through CTest (1/1); the expanded standalone suite also passes AddressSanitizer and UndefinedBehaviorSanitizer, including v1/v2 preset compatibility and all per-zone filter modes.
-- Existing UI remains unchanged. The processor's instrument-loading API is implemented, but no browser/import control exposes it yet; a real user-facing multisample workflow is therefore not complete.
+- sampler_expansion_tests and sampler_processor_tests pass through CTest (2/2). The processor integration test loads a real WAV, renders finite nonzero audio from MIDI, serializes/restores the instrument through plugin state, then loads a real .jasz preset on the background worker and renders again. The expansion suite also passes AddressSanitizer and UndefinedBehaviorSanitizer, including v1/v2 preset compatibility and per-zone filter modes.
+- Existing UI remains unchanged. Processor-level multisample playback, plugin-state restoration, and background .jasz sample loading are now covered by an integration harness. No browser/import control exposes these features yet; a real user-facing multisample workflow is therefore not complete.
 - Forward/ping-pong looping, forward-loop crossfade, transient marker analysis, and transient-to-slice zone generation are implemented. Slice audition through generated zones is supported by the engine API but not yet exposed in the UI.
 - Missing-sample relinking is implemented and tested for unique and ambiguous filename matches. In-DAW multisample editing, Windows runtime validation, and a real Logic project test of multisample loading/state round-trip remain open.
 

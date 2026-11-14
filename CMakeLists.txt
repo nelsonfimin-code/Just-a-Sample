@@ -375,4 +375,24 @@ if (BUILD_TESTING)
         tests/test_sampler_expansion.cpp
     )
     add_test(NAME sampler_expansion_tests COMMAND sampler_expansion_tests)
+
+    # Processor-level integration coverage: real sample decoding, MIDI rendering,
+    # and serialized instrument restoration through the actual plugin processor.
+    add_executable(sampler_processor_tests tests/test_sampler_processor.cpp)
+    target_link_libraries(sampler_processor_tests PRIVATE JustASample)
+    target_include_directories(sampler_processor_tests PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/JustASample_artefacts/JuceLibraryCode"
+        "${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_AudioPluginData/JuceLibraryCode"
+        "${FETCHCONTENT_BASE_DIR}/JUCE/modules"
+        "${FETCHCONTENT_BASE_DIR}/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK"
+        "${FETCHCONTENT_BASE_DIR}"
+        "${bungee_SOURCE_DIR}/bungee"
+        "${CMAKE_CURRENT_SOURCE_DIR}/External/Gin"
+        "${CMAKE_CURRENT_SOURCE_DIR}/External/MTS"
+        "${CMAKE_CURRENT_SOURCE_DIR}/External/readerwriterqueue"
+        "${CMAKE_CURRENT_SOURCE_DIR}/External/reaper-plugins"
+        "${leaf_SOURCE_DIR}/leaf"
+        "${leaf_SOURCE_DIR}/leaf/Inc")
+    add_test(NAME sampler_processor_tests
+        COMMAND sampler_processor_tests "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/integration-sine.wav")
 endif()
